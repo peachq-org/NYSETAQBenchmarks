@@ -1,0 +1,5 @@
+out-q/
+out-duck/
+params/
+*.duckdb
+verdicts.txt
