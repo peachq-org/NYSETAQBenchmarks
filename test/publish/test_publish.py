@@ -44,7 +44,9 @@ def load_js(path, prefix):
 class PublishTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp = Path(tempfile.mkdtemp(prefix="publish-test-"))
+        temp = tempfile.TemporaryDirectory(prefix="publish-test-")
+        cls.addClassCleanup(temp.cleanup)
+        cls.temp = Path(temp.name)
         run = cls.temp / "results" / "run"
         run.mkdir(parents=True)
         (run / "environment.yaml").write_text(ENVIRONMENT)

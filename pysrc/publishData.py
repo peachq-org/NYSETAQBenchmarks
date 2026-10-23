@@ -62,7 +62,7 @@ from pathlib import Path
 
 import yaml
 
-from convertToJSFormat import cpu_model_of, numanode_of
+from convertToJSFormat import cpu_model_of, numanode_of, parse_stats, solution_stats_dirs
 
 ROOT = Path(__file__).resolve().parent.parent
 QUERYMETA = ROOT / "artifacts" / "queries" / "inmemory" / "querymeta.psv"
@@ -114,16 +114,6 @@ def load_verdicts(path):
         return {(RENAMED.get(r["solution"], r["solution"]), int(r["idx"])): r["verdict"].strip() for r in reader}
 
 
-def solution_dirs(run_dir):
-    """Map each solution name to its stats directory, by the stats.yaml "solution" line."""
-    found = {}
-    for path in sorted(p for p in run_dir.iterdir() if (p / "stats.yaml").is_file()):
-        m = re.search(r"^solution\s*:\s*(.+?)\s*$", (path / "stats.yaml").read_text(), re.M)
-        if m:
-            found[m.group(1).strip("'\"")] = path
-    return found
-
-
 def discover(results_dir):
     # followlinks: a tree assembled from symlinks to chosen run directories is the usual input.
     runs = sorted(Path(d) for d, _, files in os.walk(results_dir, followlinks=True)
@@ -170,7 +160,7 @@ def stage_results(runs, chosen, verdicts, out):
             fh.write("|".join(header) + "\n")
             fh.writelines("|".join(r.get(c, "") for c in header) + "\n" for r in mine)
         names = {r["solution"] for r in mine}
-        for name, src in solution_dirs(run).items():
+        for name, src in solution_stats_dirs(run).items():
             if RENAMED.get(name, name) not in names:
                 continue
             shutil.copytree(src, dest / src.name)
@@ -184,12 +174,10 @@ def ns_to_ms(value):
     return round(int(value) / 1e6, 6) if value else None
 
 
-def version_of(stats_text):
-    m = re.search(r"^engineversion\s*:\s*(.+?)\s*$", stats_text, re.M)
-    if not m:
-        return None
-    raw = m.group(1).strip("'\"")
-    inner = re.search(r'version:"([^"]+)"', raw)
+def version_of(stats_path):
+    """engineversion from stats.yaml, with Rayforce's {version:"x" ...} record reduced to x."""
+    raw = parse_stats(stats_path)[1]
+    inner = re.search(r'version:"([^"]+)"', raw or "")
     return inner.group(1) if inner else raw
 
 
@@ -210,10 +198,10 @@ def summarise(runs, chosen, kept, size, verified):
 
     versions, engines = {}, {}
     for (name, _), run in chosen.items():
-        stats = solution_dirs(run)
+        stats = solution_stats_dirs(run)
         src = next((p for n, p in stats.items() if RENAMED.get(n, n) == name), None)
         if src is not None:
-            versions.setdefault(name, version_of((src / "stats.yaml").read_text()))
+            versions.setdefault(name, version_of(src / "stats.yaml"))
     times, setup = {}, {}
     for (name, threads), rows in sorted(kept.items()):
         engines.setdefault(name, rows[0]["engine"])

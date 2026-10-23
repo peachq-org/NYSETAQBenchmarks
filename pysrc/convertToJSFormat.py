@@ -338,6 +338,35 @@ def build_entry(solution, runs, date, machine, numanode, proprietary, enginevers
     ])
 
 
+def solution_stats_dirs(run_dir: Path):
+    """The stats directory of each solution a run attempted, keyed by the name
+    add_solution_name recorded on its stats.yaml "solution" line.
+
+    The directory name is the sanitised form of it ("DuckDB (Index)" ->
+    "DuckDB_Index_") and so cannot be turned back into a solution name; the
+    "solution" line is the only record of it.
+    """
+    stats_dirs = {}
+    for path in sorted(run_dir.iterdir()):
+        if not path.is_dir():
+            continue
+        stats = path / "stats.yaml"
+        if not stats.is_file():
+            # Both runners write the solution-level part of stats.yaml before
+            # loading, so this only happens for a run made before they did.
+            if parse_exit_status(path / "os.txt"):
+                print(f"warning: {path} holds a failed run without a stats.yaml, "
+                      f"so the solution it ran is unknown; skipped", file=sys.stderr)
+            continue
+        sol_match = re.search(r"^solution\s*:\s*(.+?)\s*$", stats.read_text(), re.MULTILINE)
+        if sol_match is None:
+            print(f"warning: {stats} has no 'solution' line, so the solution it "
+                  f"describes is unknown; skipped", file=sys.stderr)
+            continue
+        stats_dirs[sol_match.group(1).strip().strip("'\"")] = path
+    return stats_dirs
+
+
 def process_run(run_dir: Path, machines: dict, mappings_path: Path):
     """Extract per-(solution, thread count) measurements from one run directory.
 
@@ -363,29 +392,7 @@ def process_run(run_dir: Path, machines: dict, mappings_path: Path):
         )
     machine = machines[cpu_model]
 
-    # The stats directory of each solution the run attempted, keyed by the name
-    # add_solution_name recorded on the stats.yaml "solution" line. The directory
-    # name is the sanitised form of it ("DuckDB (Index)" -> "DuckDB_Index_") and so
-    # cannot be turned back into a solution name; the "solution" line is the only
-    # record of it.
-    stats_dirs = {}
-    for path in sorted(run_dir.iterdir()):
-        if not path.is_dir():
-            continue
-        stats = path / "stats.yaml"
-        if not stats.is_file():
-            # Both runners write the solution-level part of stats.yaml before
-            # loading, so this only happens for a run made before they did.
-            if parse_exit_status(path / "os.txt"):
-                print(f"warning: {path} holds a failed run without a stats.yaml, "
-                      f"so the solution it ran is unknown; skipped", file=sys.stderr)
-            continue
-        sol_match = re.search(r"^solution\s*:\s*(.+?)\s*$", stats.read_text(), re.MULTILINE)
-        if sol_match is None:
-            print(f"warning: {stats} has no 'solution' line, so the solution it "
-                  f"describes is unknown; skipped", file=sys.stderr)
-            continue
-        stats_dirs[sol_match.group(1).strip().strip("'\"")] = path
+    stats_dirs = solution_stats_dirs(run_dir)
 
     grouped, solutions = load_psv(run_dir / "results.psv")
 
