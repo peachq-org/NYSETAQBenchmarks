@@ -102,6 +102,8 @@ csvTypes: {[cs]
 normalizeSpecials: {[t]
     t: {[t; c] @[t; c; :; parseTemporalText[c] each t c]}/[t; TEMPORALCOLS inter cols t];
     t: {[t; c] @[t; c; :; parseBooleanText each t c]}/[t; BOOLEANCOLS inter cols t];
+    / q writes a blank char as " ", the Python engines as ""; read as text, trim makes them equal
+    t: {[t; c] @[t; c; :; trim each t c]}/[t; TEXTCOLS inter cols t];
     t }
 
 / Use the declared comparison order to remove engine-specific group/hash order.
@@ -134,8 +136,8 @@ compare: {[idx: `j; tags: `C; instrument; complexity; description; sortby; comme
     srct1: .Q.dd[queryoutput1; `$"queryoutput_" , string[idx], ".csv"];
     srct2: .Q.dd[queryoutput2; `$"queryoutput_" , string[idx], ".csv"];
     .log.info "Comparing tables with ", string[srct1], " and ", string srct2;
-    t1cols: `$"," vs first read0 (srct1; 0; 65536);
-    t2cols: `$"," vs first read0 (srct2; 0; 65536);
+    t1cols: `$"," vs first system "head -n 1 ", 1_string srct1;
+    t2cols: `$"," vs first system "head -n 1 ", 1_string srct2;
     t1: normalizeSpecials (csvTypes[t1cols]; enlist csv) 0: srct1;
     t2: normalizeSpecials (csvTypes[t2cols]; enlist csv) 0: srct2;
 
