@@ -1,0 +1,4 @@
+tag|description|comment
+refjoin|the query joins trades to the master reference table|
+topn|the query keeps the first n rows of every group in a ranked order|
+windowjoin|the query aggregates the quotes in a time window around every trade|
