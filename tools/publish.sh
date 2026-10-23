@@ -8,9 +8,12 @@
 # Safe by default: DRY-RUN unless GO=1. Only verified results go live: GO=1 needs
 # --verdicts (verify.sh output) and refuses --unverified.
 #
-# Usage: tools/publish.sh --results DIR --size SIZE (--verdicts FILE | --unverified) [--local DIR] [--stage DIR]
+# A verified publish also appends the run's MPH to artifacts/publish/history.psv: commit it.
+#
+# Usage: tools/publish.sh --results DIR --size SIZE (--verdicts FILE | --unverified) [--local DIR] [--stage DIR] [--page-solutions LIST] [--history FILE]
 #   --local DIR   copy into DIR (a local preview's .../data/benchmark) instead of the server; it
 #                 writes at once, since nothing leaves the machine
+#   --page-solutions LIST, --history FILE   passed to publishData.py
 #   GO=1          upload to $PEACHQ_HOST:$PEACHQ_ROOT
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -19,7 +22,7 @@ GO="${GO:-0}"
 REMOTE_HOST="${PEACHQ_HOST:-root@timestored.com}"
 REMOTE_ROOT="${PEACHQ_ROOT:-/srv/rsync/peachq.org/public_html}"
 PYTHON="${PYTHON:-python3}"
-RESULTS=""; SIZE=""; VERDICTS=""; UNVERIFIED=0; LOCAL=""; STAGE="build/publish"
+RESULTS=""; SIZE=""; VERDICTS=""; UNVERIFIED=0; LOCAL=""; STAGE="build/publish"; EXTRA=()
 
 usage() { sed -n 's/^# Usage: //p' "$0" >&2; exit 2; }
 while [ $# -gt 0 ]; do
@@ -30,6 +33,7 @@ while [ $# -gt 0 ]; do
     --unverified) UNVERIFIED=1; shift;;
     --local) LOCAL="${2:?}"; shift 2;;
     --stage) STAGE="${2:?}"; shift 2;;
+    --page-solutions|--history) EXTRA+=("$1" "${2:?}"); shift 2;;
     *) usage;;
   esac
 done
@@ -52,7 +56,7 @@ else mode="DRY-RUN (GO=1 to upload) -> $REMOTE_HOST:$REMOTE_ROOT/data/benchmark"
 echo "== publish $SIZE $([ "$UNVERIFIED" = 1 ] && echo UNVERIFIED || echo "verified by $VERDICTS"): $mode =="
 
 gate=(--unverified); [ -n "$VERDICTS" ] && gate=(--verdicts "$VERDICTS")
-"$PYTHON" pysrc/publishData.py "$RESULTS" "$STAGE" --size "$SIZE" "${gate[@]}"
+"$PYTHON" pysrc/publishData.py "$RESULTS" "$STAGE" --size "$SIZE" "${gate[@]}" ${EXTRA[@]+"${EXTRA[@]}"}
 echo "-- staged under $STAGE: data.js, full/ --"
 
 if [ -n "$LOCAL" ]; then

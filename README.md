@@ -510,6 +510,10 @@ GO=1 tools/publish.sh --results DIR --size tiny --verdicts verdicts.tsv         
 tools/publish.sh --results DIR --size tiny --unverified --local /path/to/public_html/data/benchmark  # local preview
 ```
 
+`data.js` carries the page's curated solutions (`--page-solutions`, default peachq, peachq (via
+DuckDB), DuckDB (Index), l, Rayforce, Rayforce Parted, Polars (Lazy), Pandas); `full/` keeps
+every verified solution.
+
 `DIR` holds run directories as `queryEngines.sh -r` writes them (a directory of symlinks to the
 chosen runs works). The most recent run of each (solution, thread count) wins, by test date and
 time. Only correct results are published: the verdicts file is verify.sh's output
@@ -518,6 +522,19 @@ time. Only correct results are published: the verdicts file is verify.sh's outpu
 `success`, is shown as absent. `GO=1` refuses to run without one; `--unverified` is for dry runs
 and local previews, and stamps the data `verified: false`. Set `PYTHON` to an interpreter with
 `pyyaml`; `PEACHQ_HOST` and `PEACHQ_ROOT` override the server.
+
+Speed is reported in MPH, with DuckDB (Index) as 100. At each thread count, for each query
+DuckDB answered, a solution's ratio is its warm time over DuckDB's; a query it did not answer
+(failed, timed out or not verified) counts at 2x the worst ratio any page solution posted for that
+query, and a query only DuckDB answered is skipped. MPH is 100 / the geometric mean of the ratios;
+the median MPH is 100 / their median.
+
+A verified publish appends the run's MPH to [artifacts/publish/history.psv](./artifacts/publish/history.psv),
+one row per (run date, solution, thread count); commit it after publishing. Publishing the same run
+again adds nothing (key: run date, solution, threads, binary sha256, target, target version, size).
+The binary sha256 is the `binarysha256` line `queryEngines.sh` appends to the stats.yaml of the q
+binaries it runs (peachq, peachq (via DuckDB), l), empty for runs made before it did. A new
+DuckDB version or target starts a new series, which the page's trend chart never joins to the old.
 
 The `data.js` schema:
 
@@ -528,12 +545,15 @@ window.PEACHQ_BENCHMARK = {
   queries: [{idx, description, tags}],
   times: {<solution id>: {<threads>: [warm ms (min of runs 2 and 3) or null, per query]}},
   setup: {<solution id>: {<threads>: {load, sort, index, store}}},
-  history: []   // stage 2: [{date, solution, version, binarySha256, baselineSolution: "l",
-                //   baselineVersion, threads, size, datadate, ratioGeomean, ratioMedian, answered, failed}]
+  target: "DuckDB (Index)", baselineVersion: "2.0.0",   // the solution that is 100 MPH, and its version
+  mph: {<solution id>: {<threads>: {mph, mphMedian, answered, failed, total}}},
+  history: [{date, solution, version, binarySha256, target, baselineVersion,
+             threads, size, datadate, mph, mphMedian, answered, failed}]   // the history file, oldest first
 }
 ```
 
-A solution id is its `results.psv` name. `history` is reserved and empty for now; see
+A solution id is its `results.psv` name. `answered` counts the queries with a verified time, of
+`total`; `failed` the ones charged the penalty. See
 [actionable-plans/2026-10-23-benchmark-publishing.md](./actionable-plans/2026-10-23-benchmark-publishing.md).
 `python -m unittest discover -s test/publish` checks the pipeline on a hand-made run.
 

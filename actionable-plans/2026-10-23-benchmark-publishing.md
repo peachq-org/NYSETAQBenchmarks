@@ -1,6 +1,6 @@
 # Publishing NYSE TAQ results to peachq.org/benchmark
 
-**Date:** 2026-10-23 · **Status:** stage 1 in review (this PR + the website PR), stage 2 decided, stage 3 deferred
+**Date:** 2026-10-23 · **Status:** stage 1 merged, stage 2 in review (the MPH PRs in the fork and the website), stage 3 deferred
 
 Written as a file rather than a PR body because it is a three-stage programme and the stage 2
 decisions must survive across sessions.
@@ -45,8 +45,8 @@ That is the owner's 52-59x starting figure, so the data already carries what sta
 
 ## Success measures
 
-- `peachq.org/benchmark` renders KPI tiles, the ratio chart and the per-query table from the
-  uploaded `data.js`, and an empty state without it.
+- `peachq.org/benchmark` renders the MPH tiles, speedometer, trend chart, MPH bars and the
+  per-query table from the uploaded `data.js`, and an empty state without it.
 - No KX mark or palette colour in the page or the drill-down (asserted by tests in both repos).
 - `GO=1 tools/publish.sh` cannot run without a verdicts file.
 
@@ -54,26 +54,37 @@ That is the owner's 52-59x starting figure, so the data already carries what sta
 
 1. **Publish today's numbers.** Fork: `tools/publish.sh`, `pysrc/publishData.py`, the peachq
    theme in `pysrc/buildSite.py`. Website: `/benchmark`. `data.js` reserves an empty `history`.
-2. **History and the trend chart.** Owner decisions, verbatim:
-   - The trend chart plots "times slower than l" (geometric mean over the 84 queries of peachq's
-     cold run-1 time divided by l's), one line for `peachq` and one for `peachq (via DuckDB)`,
-     both at 1 thread, against l at 1 thread. The median ratio is shown in the tooltip. A
-     DuckDB-relative view may exist as a toggle but l is the headline.
-   - l is pinned (20261019) for the series; a deliberate re-pin is a marked break.
-   - The x-axis is the DATE THE RUN HAPPENED, never the version: peachq reuses release numbers
-     for different builds, so a point is keyed by run date plus an identity of the binary
-     (sha256 of the q binary, plus its version string as a label only).
-   - A failed or timed-out query counts at 2x the worst ratio posted for that query (the
-     benchmark's own rule), so a regression shows as a jump, not a gap.
-   - Linear y-axis that starts at zero, with zero drawn as a line; no log scale, no dashed goal
-     line.
+2. **Speed in MPH, history and the trend chart.** Owner rulings of 2026-10-23, which replace
+   the earlier "times slower than l" rulings:
+   - Speed is MPH, with DuckDB (Index) as 100. For a solution at a thread count, each query
+     DuckDB answered and verified gives ratio = the solution's warm time (min of runs 2 and 3) /
+     DuckDB's at the same thread count. A query the solution failed, timed out or did not verify
+     counts at 2x the worst ratio any shown solution posted for it (the benchmark's own rule); a
+     query no shown solution but DuckDB answered is skipped. MPH = 100 / geomean(ratios); the
+     median MPH (100 / median) and answered/total are reported with it. DuckDB's version is named:
+     "DuckDB 2.0.0 = 100 MPH". Linear everywhere, no log scales.
+   - The trend chart plots MPH over the DATE THE RUN HAPPENED, never the version (peachq reuses
+     release numbers), one line each for `peachq` and `peachq (via DuckDB)`, on a linear y-axis
+     from 0 with the zero line drawn and no goal line. A point's tooltip shows run date, version
+     label, MPH, median MPH and answered/84. One point renders as a labelled dot.
+   - History records MPH: `artifacts/publish/history.psv`, appended on every verified publish,
+     one row per (run date, solution, thread count) with the version label, the binary's sha256
+     (empty when the runner did not record it, never invented), the target and its version,
+     size, data date, MPH, median MPH, answered and failed. Publishing the same run twice adds no
+     row. A new DuckDB version or target starts a new, labelled series that the chart never joins
+     to the old. If peachq ever passes DuckDB the target becomes `l`, as a new series (not built;
+     the target is a field so it can change).
+   - The page shows a curated set (peachq, peachq (via DuckDB), DuckDB (Index), l, Rayforce,
+     Rayforce Parted, Polars (Lazy), Pandas), chosen at publish time; Full results shows every
+     verified solution.
    - Only verified (correct) results ever enter the history or the chart.
-   - Today's laptop run is the first point; expected trajectory from about 52-59x slower than l
-     toward 2x.
+   - Today's laptop run is the first point: peachq 25.0 MPH, peachq (via DuckDB) 29.9 MPH at one
+     thread.
 
-   The shape is reserved in `data.js`: `history: [{date, solution, version, binarySha256,
-   baselineSolution: "l", baselineVersion, threads, size, datadate, ratioGeomean, ratioMedian,
-   answered, failed}]`.
+   Rules settled:
+   - Speed is MPH, with DuckDB as 100.
+   - History records MPH per run.
+   - The page shows a curated set; Full results shows everything.
 3. **AWS spot runner. DEFERRED** (owner: "solve when we get there"). When it comes, the AWS
    machine starts a new series; it never shares a line with the laptop.
 
@@ -81,8 +92,7 @@ That is the owner's 52-59x starting figure, so the data already carries what sta
 
 - Stage 1 → owner review of both PRs, then the correctness-gate PR (verify.sh) merged so a
   verified `GO=1` upload is possible.
-- Stage 2 → the runner records the q binary's sha256 per run (environment.yaml or stats.yaml);
-  `publishData.py` keeps prior history (read the published `data.js` back, or a history file in
-  the fork) and appends one point per verified run; the website page draws the line.
+- Stage 2 → owner sign-off of the local preview, then both PRs merged (fork first) and a
+  verified `GO=1` publish.
 - Stage 3 → the owner deciding to start it; an instance type and a CPU model added to
   `results/mappings.yaml`.

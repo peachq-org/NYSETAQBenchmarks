@@ -148,6 +148,7 @@ function execute_queries () {
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed \
                     -sortcols "time" -indexon "sym" \
                     -queryfile ./artifacts/queries/inmemory/kdb.psv
+                record_binary_sha256 "peachq" "${QBIN_PATH}"
             fi
             # The same qSQL on trade and quote stored in DuckDB and linked back as q tables.
             if solution_enabled "peachq (via DuckDB)" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
@@ -157,6 +158,7 @@ function execute_queries () {
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed -store duckdb \
                     -sortcols "time" -indexon "sym" \
                     -queryfile ./artifacts/queries/inmemory/kdb.psv
+                record_binary_sha256 "peachq (via DuckDB)" "${QBIN_DUCKDB_PATH}"
             fi
         fi
         if engine_enabled l; then
@@ -168,6 +170,7 @@ function execute_queries () {
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed \
                     -sortcols "time" -indexon "sym" \
                     -queryfile ./artifacts/queries/inmemory/kdb.psv -s ${s}
+                record_binary_sha256 "l" "${LBIN}"
             fi
         fi
         if engine_enabled rayforce; then
