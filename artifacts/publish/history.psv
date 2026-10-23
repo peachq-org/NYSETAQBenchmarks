@@ -1,0 +1,13 @@
+date|solution|version|binarySha256|target|baselineVersion|threads|size|datadate|mph|mphMedian|answered|failed
+2026-10-23|Pandas|3.1.0||DuckDB (Index)|2.0.0|1|tiny|2026-07-01|53.319|55.799|84|0
+2026-10-23|Pandas|3.1.0||DuckDB (Index)|2.0.0|4|tiny|2026-07-01|13.557|12.646|84|0
+2026-10-23|Polars (Lazy)|2.0.0||DuckDB (Index)|2.0.0|1|tiny|2026-07-01|161.16|174.817|73|11
+2026-10-23|Polars (Lazy)|2.0.0||DuckDB (Index)|2.0.0|4|tiny|2026-07-01|38.349|43.402|73|11
+2026-10-23|Rayforce|2.11.5||DuckDB (Index)|2.0.0|1|tiny|2026-07-01|405.821|319.748|83|1
+2026-10-23|Rayforce|2.11.5||DuckDB (Index)|2.0.0|4|tiny|2026-07-01|329.312|273.543|83|1
+2026-10-23|Rayforce Parted|2.11.5||DuckDB (Index)|2.0.0|1|tiny|2026-07-01|484.515|356.552|81|3
+2026-10-23|Rayforce Parted|2.11.5||DuckDB (Index)|2.0.0|4|tiny|2026-07-01|408.925|376.328|81|3
+2026-10-23|l|1 2026.10.19||DuckDB (Index)|2.0.0|1|tiny|2026-07-01|1806.611|1934.165|84|0
+2026-10-23|l|1 2026.10.19||DuckDB (Index)|2.0.0|4|tiny|2026-07-01|989.479|859.972|84|0
+2026-10-23|peachq|5 2026.10.22||DuckDB (Index)|2.0.0|1|tiny|2026-07-01|25.018|25.067|82|2
+2026-10-23|peachq (via DuckDB)|5 2026.10.22||DuckDB (Index)|2.0.0|1|tiny|2026-07-01|29.876|29.568|81|3

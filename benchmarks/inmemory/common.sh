@@ -179,6 +179,18 @@ function add_solution_name () {
     fi
 }
 
+function solution_dir () {
+    echo "${RESULT_DIR}/$(echo "$1" | sed -E 's/[^a-zA-Z0-9._-]+/_/g')"
+}
+
+# Name the exact build a q solution ran in its stats.yaml: peachq reuses release
+# numbers, so the version string alone does not identify a published point.
+function record_binary_sha256 () {
+    local stats="$(solution_dir "$1")/stats.yaml"
+    [[ -f "${stats}" ]] || return 0
+    echo "binarysha256: $(sha256sum "$2" | cut -d' ' -f1)" >> "${stats}"
+}
+
 # Run one named solution's query command: compute its per-solution result
 # path, append -queryOutputDir/-result to the command given in $2..., run it,
 # then label the resulting PSV via add_solution_name. Relies on $s (thread count)
@@ -195,7 +207,7 @@ function add_solution_name () {
 function run_solution () {
     local solution="$1"
     shift
-    local safe=$(echo "${solution}" | sed -E 's/[^a-zA-Z0-9._-]+/_/g')
+    local safe=$(basename "$(solution_dir "${solution}")")
     mkdir -p "${RESULT_DIR}/${safe}"
     local result=${RESULT_TMP_DIR}/${safe}_${s}Threads.psv
     local query_output_param=""
