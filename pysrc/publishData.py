@@ -211,6 +211,11 @@ def version_of(stats_path):
     return inner.group(1) if inner else raw
 
 
+def stats_yaml_of(run, name):
+    src = next((p for n, p in solution_stats_dirs(run).items() if RENAMED.get(n, n) == name), None)
+    return src / "stats.yaml" if src is not None else None
+
+
 def binary_sha256_of(stats_path):
     found = re.search(r"^binarysha256\s*:\s*'?([0-9a-f]{64})'?\s*$", stats_path.read_text(), re.M)
     return found.group(1) if found else ""
@@ -254,10 +259,9 @@ def summarise(runs, chosen, kept, size, verified):
 
     versions, engines = {}, {}
     for (name, _), run in chosen.items():
-        stats = solution_stats_dirs(run)
-        src = next((p for n, p in stats.items() if RENAMED.get(n, n) == name), None)
-        if src is not None:
-            versions.setdefault(name, version_of(src / "stats.yaml"))
+        stats = stats_yaml_of(run, name)
+        if stats is not None:
+            versions.setdefault(name, version_of(stats))
     times, setup = {}, {}
     for (name, threads), rows in sorted(kept.items()):
         engines.setdefault(name, rows[0]["engine"])
@@ -317,18 +321,14 @@ def curate(summary, page):
 
 def history_rows(summary, chosen, envs):
     """One row per (solution, threads), each version read from the run that measured that thread count."""
-    def stats_of(name, threads):
-        run = chosen[(name, int(threads))]
-        return run, next((p / "stats.yaml" for n, p in solution_stats_dirs(run).items() if RENAMED.get(n, n) == name),
-                         None)
-
     rows = []
     for name, by_threads in summary["mph"].items():
         if name == BASELINE:
             continue
         for threads, speed in by_threads.items():
-            run, stats = stats_of(name, threads)
-            target = stats_of(BASELINE, threads)[1]
+            run = chosen[(name, int(threads))]
+            stats = stats_yaml_of(run, name)
+            target = stats_yaml_of(chosen[(BASELINE, int(threads))], BASELINE)
             rows.append({"date": str(envs[run]["test date"]), "solution": name,
                          "version": (version_of(stats) if stats else None) or "",
                          "binarySha256": binary_sha256_of(stats) if stats else "",
@@ -350,7 +350,7 @@ def read_history(path):
 
 
 def record_history(path, new_rows):
-    """Append the rows whose key is not yet in the file; return the whole history."""
+    """Add the rows whose key is not yet in the file; return the whole history, oldest run first."""
     rows = read_history(path)
     seen = {tuple(str(r[k]) for k in HISTORY_KEY) for r in rows}
     for r in new_rows:
@@ -358,6 +358,7 @@ def record_history(path, new_rows):
         if key not in seen:
             seen.add(key)
             rows.append(r)
+    rows.sort(key=lambda r: r["date"])
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as fh:
         fh.write("|".join(HISTORY_FIELDS) + "\n")
