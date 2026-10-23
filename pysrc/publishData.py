@@ -3,6 +3,7 @@
 
     python pysrc/publishData.py RESULTS_DIR STAGE_DIR --size SIZE (--verdicts FILE | --unverified)
                                 [--page-solutions "A,B,..."] [--history FILE]
+                                [--extra-results DIR [--extra-verdicts FILE]]
 
 RESULTS_DIR holds run directories as ``benchmarks/inmemory/queryEngines.sh -r``
 writes them: environment.yaml, results.psv and one ``<solution>/stats.yaml``
@@ -21,8 +22,15 @@ per solution. Three things are written under STAGE_DIR:
             pysrc/buildSite.py. It keeps every solution.
 
 A verified publish also appends to the speed history (--history, default
-artifacts/publish/history.psv), one row per (run date, solution, thread count)
-not already recorded; an unverified one leaves it alone.
+artifacts/publish/history.psv), one row per (run date, query set, solution,
+thread count) not already recorded; an unverified one leaves it alone.
+
+--extra-results names the runs of the fork's common workloads
+(queryEngines.sh --queryset extra, artifacts/queries/inmemory/extra/), checked
+by --extra-verdicts (verify.sh --queryset extra). They are summarised on their
+own into the extra* fields, never mixed into KX's queries, times or MPH, and are
+not part of full/. They must come from the machine, data date and NUMA setting
+of RESULTS_DIR.
 
 Speed is MPH with the target, DuckDB (Index), as 100. At one thread count, for
 each query the target answered: ratio = solution's warm time / the target's. A
@@ -55,13 +63,17 @@ data.js schema::
       mph:       {<solution id>: {<threads>: {mph, mphMedian, answered, failed, total}}}
       history:   every row of the history file, oldest first:
                  [{date, solution, version, binarySha256, target, baselineVersion,
-                   threads, size, datadate, mph, mphMedian, answered, failed}]
+                   threads, size, datadate, mph, mphMedian, answered, failed, queryset}]
+      extraQueries, extraTimes, extraMph: queries, times and mph of the common
+                 workloads, with each query's definition; absent without --extra-results
+      extraNotWritten: {<solution id>: [idx, ...]}, the extra queries a page
+                 solution has no translation for
     }
 
 answered counts the queries with a verified time, of total; failed counts the
-ones charged the penalty. A history series is one (solution, threads, target,
-baselineVersion, size): a new target version starts a new series, never joined
-to the old one.
+ones charged the penalty. A history series is one (queryset, solution, threads,
+target, baselineVersion, size): a new target version starts a new series, never
+joined to the old one. queryset is kx or extra; a row written before it existed is kx.
 
 A solution id is its results.psv name, so verdicts, the drill-down and the
 page all key on one string. Warm ms is min(run2, run3). Setup times are run 1
@@ -89,12 +101,15 @@ import yaml
 from convertToJSFormat import cpu_model_of, numanode_of, parse_stats, solution_stats_dirs
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "pysrc" / "verify"))
+import solutions as verify_solutions  # noqa: E402
 QUERYMETA = ROOT / "artifacts" / "queries" / "inmemory" / "querymeta.psv"
+EXTRA_QUERYMETA = QUERYMETA.parent / "extra" / "querymeta.psv"
 BASELINE = "DuckDB (Index)"
 HISTORY = ROOT / "artifacts" / "publish" / "history.psv"
 HISTORY_FIELDS = ("date", "solution", "version", "binarySha256", "target", "baselineVersion", "threads", "size",
-                  "datadate", "mph", "mphMedian", "answered", "failed")
-HISTORY_KEY = ("date", "solution", "threads", "binarySha256", "target", "baselineVersion", "size")
+                  "datadate", "mph", "mphMedian", "answered", "failed", "queryset")
+HISTORY_KEY = ("date", "queryset", "solution", "threads", "binarySha256", "target", "baselineVersion", "size")
 PAGE_SOLUTIONS = ("peachq", "peachq (via DuckDB)", "DuckDB (Index)", "l", "Rayforce", "Rayforce Parted",
                   "Polars (Lazy)", "Pandas")
 RENAMED = {"qlite": "peachq", "qlite (DuckDB)": "peachq (via DuckDB)"}
@@ -242,7 +257,7 @@ def speeds(times, target):
             for name, rs in ratios.items() if rs}
 
 
-def summarise(runs, chosen, kept, size, verified):
+def summarise(runs, chosen, kept, size, verified, querymeta=QUERYMETA):
     used = [(run, env) for run, env in runs if run in set(chosen.values())]
     cpus = {cpu_model_of(env) for _, env in runs}
     dates = {str(env["parameters"]["datadate"]) for _, env in runs}
@@ -253,7 +268,7 @@ def summarise(runs, chosen, kept, size, verified):
     newest = max(used, key=lambda pair: stamp(pair[1]))[1]
     system = newest["system"]
 
-    _, meta = read_psv(QUERYMETA)
+    _, meta = read_psv(querymeta)
     queries = [{"idx": int(q["idx"]), "description": q["description"],
                 "tags": [t for t in q["tags"].split(",") if t]} for q in meta]
 
@@ -319,7 +334,7 @@ def curate(summary, page):
                    baselineVersion=next(s["version"] for s in summary["solutions"] if s["id"] == BASELINE))
 
 
-def history_rows(summary, chosen, envs):
+def history_rows(summary, chosen, envs, queryset="kx"):
     """One row per (solution, threads), each version read from the run that measured that thread count."""
     rows = []
     for name, by_threads in summary["mph"].items():
@@ -335,7 +350,7 @@ def history_rows(summary, chosen, envs):
                          "target": summary["target"], "baselineVersion": (version_of(target) if target else None) or "",
                          "threads": int(threads), "size": summary["size"], "datadate": summary["datadate"],
                          "mph": speed["mph"], "mphMedian": speed["mphMedian"], "answered": speed["answered"],
-                         "failed": speed["failed"]})
+                         "failed": speed["failed"], "queryset": queryset})
     return rows
 
 
@@ -344,6 +359,7 @@ def read_history(path):
         return []
     _, rows = read_psv(path)
     for r in rows:
+        r.setdefault("queryset", "kx")
         r.update({k: int(r[k]) for k in ("threads", "answered", "failed")},
                  **{k: float(r[k]) for k in ("mph", "mphMedian")})
     return rows
@@ -366,6 +382,43 @@ def record_history(path, new_rows):
     return rows
 
 
+def setting(runs):
+    return ({cpu_model_of(env) for _, env in runs}, {str(env["parameters"]["datadate"]) for _, env in runs},
+            {numanode_of(env) for _, env in runs})
+
+
+def add_extra(summary, runs, chosen, kept, verdicts, page):
+    """Summarise the common workloads into summary's extra* fields; return their own summary for the history."""
+    extra = summarise(runs, chosen, kept, summary["size"], summary["verified"], EXTRA_QUERYMETA)
+    curate(extra, page)
+    _, meta = read_psv(EXTRA_QUERYMETA)
+    definitions = {int(q["idx"]): q["comment"] for q in meta}
+    for q in extra["queries"]:
+        q["definition"] = definitions[q["idx"]]
+    every = [q["idx"] for q in extra["queries"]]
+    not_written = {}
+    for (name, _), rows in kept.items():
+        if name in page:
+            missing = {int(r["idx"]) for r in rows if int(r["idx"]) > 0 and (r["status"] == "emptyquery" or (
+                verdicts or {}).get((name, int(r["idx"]))) == "not-written")}
+            not_written[name] = sorted(set(not_written.get(name, [])) | missing)
+    for name in summary["times"]:
+        query_file = verify_solutions.query_file(name, verify_solutions.QUERYSETS["extra"])
+        if name not in extra["times"] and query_file and not (ROOT / query_file).exists():
+            not_written[name] = every
+    summary.update(extraQueries=extra["queries"], extraTimes=extra["times"], extraMph=extra["mph"],
+                   extraNotWritten={name: idxs for name, idxs in not_written.items() if idxs})
+    return extra
+
+
+def print_mph(title, summary, mph):
+    print(f"{title:<22}threads      MPH  median MPH  answered  ({summary['target']} "
+          f"{summary['baselineVersion']} = 100 MPH)")
+    for name, by_threads in mph.items():
+        for threads, v in sorted(by_threads.items(), key=lambda kv: int(kv[0])):
+            print(f"{name:<22}{threads:>7}{v['mph']:>9.1f}{v['mphMedian']:>12.1f}  {v['answered']:>4}/{v['total']}")
+
+
 def build_full(stage, size, python):
     generated = stage / "data.generated.js"
     subprocess.run([python, str(ROOT / "pysrc/convertToJSFormat.py"), str(stage / "results"), str(generated),
@@ -385,7 +438,13 @@ def main():
     ap.add_argument("--page-solutions", default=",".join(PAGE_SOLUTIONS),
                     help="comma-separated solutions data.js carries; full/ keeps every one (default: %(default)s)")
     ap.add_argument("--history", type=Path, default=HISTORY, help="the speed history (default: %(default)s)")
+    ap.add_argument("--extra-results", type=Path, help="runs of the common workloads (queryEngines.sh --queryset extra)")
+    ap.add_argument("--extra-verdicts", type=Path, help="verify.sh --queryset extra output for --extra-results")
     a = ap.parse_args()
+    if a.extra_verdicts and not a.extra_results:
+        ap.error("--extra-verdicts needs --extra-results")
+    if a.extra_results and not a.unverified and not a.extra_verdicts:
+        ap.error("--extra-results needs --extra-verdicts, or --unverified")
 
     verdicts = None if a.unverified else load_verdicts(a.verdicts)
     runs = discover(a.results_dir.resolve())
@@ -395,9 +454,24 @@ def main():
     (a.stage_dir / "results").mkdir(parents=True)
     kept = stage_results(runs, chosen, verdicts, a.stage_dir / "results")
     summary = summarise(runs, chosen, kept, a.size, verdicts is not None)
-    curate(summary, {name.strip() for name in a.page_solutions.split(",") if name.strip()})
+    page = {name.strip() for name in a.page_solutions.split(",") if name.strip()}
+    curate(summary, page)
+    extra = None
+    if a.extra_results:
+        extra_verdicts = None if a.unverified else load_verdicts(a.extra_verdicts)
+        extra_runs = discover(a.extra_results.resolve())
+        if setting(extra_runs) != setting(runs):
+            raise SystemExit(f"publishData: the extra runs {setting(extra_runs)} are not the machine, data date and "
+                             f"NUMA setting of the main runs {setting(runs)}")
+        extra_chosen = newest_runs(extra_runs)
+        (a.stage_dir / "results-extra").mkdir()
+        extra_kept = stage_results(extra_runs, extra_chosen, extra_verdicts, a.stage_dir / "results-extra")
+        extra = add_extra(summary, extra_runs, extra_chosen, extra_kept, extra_verdicts, page)
     if verdicts is not None:
-        summary["history"] = record_history(a.history, history_rows(summary, chosen, dict(runs)))
+        rows = history_rows(summary, chosen, dict(runs))
+        if extra:
+            rows += history_rows(extra, extra_chosen, dict(extra_runs), "extra")
+        summary["history"] = record_history(a.history, rows)
     else:
         summary["history"] = read_history(a.history)
     (a.stage_dir / "data.js").write_text("window.PEACHQ_BENCHMARK = "
@@ -406,11 +480,9 @@ def main():
     counts = [f"{name}@{threads} {sum(t is not None for t in warm)}/{len(summary['queries'])}"
               for name, by_threads in summary["times"].items() for threads, warm in by_threads.items()]
     print(f"wrote {a.stage_dir}/data.js ({'verified' if verdicts is not None else 'UNVERIFIED'}): " + ", ".join(counts))
-    print(f"{'solution':<22}threads      MPH  median MPH  answered  ({summary['target']} "
-          f"{summary['baselineVersion']} = 100 MPH)")
-    for name, by_threads in summary["mph"].items():
-        for threads, v in sorted(by_threads.items(), key=lambda kv: int(kv[0])):
-            print(f"{name:<22}{threads:>7}{v['mph']:>9.1f}{v['mphMedian']:>12.1f}  {v['answered']:>4}/{v['total']}")
+    print_mph("solution", summary, summary["mph"])
+    if extra:
+        print_mph("common workloads", extra, extra["mph"])
 
 if __name__ == "__main__":
     main()

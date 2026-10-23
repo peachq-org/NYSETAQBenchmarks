@@ -181,6 +181,67 @@ class PublishTests(unittest.TestCase):
                                   .read_text()))
 
 
+class ExtraSetTests(unittest.TestCase):
+    """The common workloads publish beside KX's 84, never into them."""
+
+    @classmethod
+    def setUpClass(cls):
+        temp = tempfile.TemporaryDirectory(prefix="publish-extra-")
+        cls.addClassCleanup(temp.cleanup)
+        cls.temp = Path(temp.name)
+        for tree, idxs in (("kx", (1, 2)), ("extra", (101, 102, 103))):
+            run = cls.temp / tree / "run"
+            run.mkdir(parents=True)
+            (run / "environment.yaml").write_text(ENVIRONMENT)
+            rows = [HEADER] + [row("DuckDB (Index)", i, "success", 2_000_000) for i in idxs]
+            rows += [row("peachq", i, "success", 1_000_000, "qlite", "q-sql") for i in idxs]
+            rows += [row("Pandas", i, "success", 4_000_000, engine="pandas") for i in idxs if tree == "extra"]
+            (run / "results.psv").write_text("\n".join(rows) + "\n")
+            for name, folder in (("DuckDB (Index)", "DuckDB_Index_"), ("peachq", "peachq"), ("Pandas", "Pandas")):
+                (run / folder).mkdir()
+                (run / folder / "stats.yaml").write_text(f"solution: {name}\nproprietary: 'no'\nengineversion: 1.0\n")
+        verdicts = {"kx": "DuckDB (Index)\t1\tok\nDuckDB (Index)\t2\tok\npeachq\t1\tok\npeachq\t2\tok\n",
+                    "extra": "DuckDB (Index)\t101\tok\nDuckDB (Index)\t102\tok\nDuckDB (Index)\t103\tok\n"
+                             "peachq\t101\tok\npeachq\t102\tvalue-diff\npeachq\t103\tnot-written\n"
+                             "Pandas\t101\tok\nPandas\t102\tok\nPandas\t103\tok\n"}
+        for tree, body in verdicts.items():
+            (cls.temp / f"{tree}.tsv").write_text("solution\tidx\tverdict\n" + body)
+        cls.history = cls.temp / "history.psv"
+        cls.out = subprocess.run([sys.executable, str(ROOT / "pysrc/publishData.py"), str(cls.temp / "kx"),
+                                  str(cls.temp / "stage"), "--size", "tiny", "--history", str(cls.history),
+                                  "--verdicts", str(cls.temp / "kx.tsv"), "--extra-results", str(cls.temp / "extra"),
+                                  "--extra-verdicts", str(cls.temp / "extra.tsv")],
+                                 cwd=ROOT, capture_output=True, text=True)
+        cls.data = load_js(cls.temp / "stage/data.js", "window.PEACHQ_BENCHMARK =") if cls.out.returncode == 0 else {}
+
+    def setUp(self):
+        self.assertEqual(self.out.returncode, 0, self.out.stderr)
+
+    def test_kx_set_is_untouched(self):
+        self.assertEqual(len(self.data["queries"]), 84)
+        self.assertEqual(self.data["times"]["peachq"]["1"][:2], [1.0, 1.0])
+        self.assertEqual(self.data["mph"]["peachq"]["1"]["mph"], 200.0)
+
+    def test_extra_set_has_its_own_queries_times_and_mph(self):
+        self.assertEqual([q["idx"] for q in self.data["extraQueries"]], list(range(101, 110)))
+        self.assertTrue(all(q["definition"] for q in self.data["extraQueries"]))
+        self.assertEqual(self.data["extraTimes"]["peachq"]["1"][:3], [1.0, None, None])
+        # 101 answered at ratio 0.5; 102 failed verification and 103 is not written, each charged 2x Pandas' 2.
+        self.assertEqual(self.data["extraMph"]["peachq"]["1"],
+                         {"mph": 50.0, "mphMedian": 25.0, "answered": 1, "failed": 2, "total": 9})
+        self.assertEqual(self.data["extraNotWritten"], {"peachq": [103]})
+
+    def test_history_records_each_query_set_as_its_own_series(self):
+        rows = self.data["history"]
+        self.assertEqual(sorted((r["queryset"], r["solution"]) for r in rows),
+                         [("extra", "Pandas"), ("extra", "peachq"), ("kx", "peachq")])
+        self.assertIn("|queryset", self.history.read_text().splitlines()[0])
+
+    def test_extra_set_stays_out_of_the_drill_down(self):
+        generated = (self.temp / "stage/full/results/inmemory/tiny/data.generated.js").read_text()
+        self.assertNotIn("query 101", generated)
+
+
 class SpeedTests(unittest.TestCase):
     def test_mph_with_the_penalty_and_a_skipped_query(self):
         got = speeds({"DuckDB (Index)": [1, 2, 4, 1, None],
