@@ -513,7 +513,8 @@ tools/publish.sh --results DIR --size tiny --unverified --local /path/to/public_
 `DIR` holds run directories as `queryEngines.sh -r` writes them (a directory of symlinks to the
 chosen runs works). The most recent run of each (solution, thread count) wins, by test date and
 time. Only correct results are published: the verdicts file is verify.sh's output
-(`solution<TAB>idx<TAB>verdict`), and any query whose verdict is not `ok`, or whose status is not
+(`<-r dir>/verification/verdicts.tsv`, `solution<TAB>idx<TAB>verdict`; see
+[Verifying Query Output Correctness](#verifying-query-output-correctness)), and any query whose verdict is not `ok`, or whose status is not
 `success`, is shown as absent. `GO=1` refuses to run without one; `--unverified` is for dry runs
 and local previews, and stamps the data `verified: false`. Set `PYTHON` to an interpreter with
 `pyyaml`; `PEACHQ_HOST` and `PEACHQ_ROOT` override the server.
