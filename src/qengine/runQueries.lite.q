@@ -19,7 +19,7 @@
 
 USAGE: "usage: q ", string[.z.f], " [-help] -db DB -paramdir DIR -queryfile FILE -querymeta FILE",
   " -storage_backend memory [-format (PSV|SPLAYED)] [-engine q-sql] [-sortcols COLS] [-indexon COL]",
-  " [-date DATE] [-queryOutputDir DIR] [-result FILE] [-tableStatsDir DIR] [-tags TAGS]",
+  " [-date DATE] [-queryOutputDir DIR] [-result FILE] [-statsDir DIR] [-tags TAGS]",
   " [-instrument (single|multi|all)] [-idx FILTER] [-debug]\n\n",
   "Loads one day of NYSE TAQ data into memory and runs the benchmark queries\n",
   "against it, writing the contract's per-query result PSV. -db is a splayed kdb\n",
@@ -39,7 +39,7 @@ if[count missing: MANDATORY except ko;
   -2 "Run with -help for usage.";
   exit 1]
 
-ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`tableStatsDir`tags`instrument`idx`debug
+ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`statsDir`tags`instrument`idx`debug
 if[count unknown: ko except ALLOWED;
   -2 "Unknown parameter(s): ", ", " sv string unknown;
   -2 "Run with -help for usage.";
@@ -60,7 +60,6 @@ if[not ENGINE ~ `$"q-sql"; -2 "Unsupported engine ", string ENGINE; exit 2]
 
 \l src/pivot.q
 \l src/memusage.q
-\l src/loadPSVDataset.q
 \l src/loadSplayedDataset.q
 \l src/getQueryParameters.q
 
@@ -70,6 +69,8 @@ PARAMDIR: hsym `$opt `paramdir
 FORMAT: $[count f: upper opt `format; `$f; `SPLAYED]
 if[not FORMAT in `PSV`SPLAYED;
   -2 "Unsupported format ", string[FORMAT], " (expected PSV or SPLAYED)"; exit 2]
+// The PSV loader reads the taq submodule's schemas, which use KDB-X dictionary literals.
+if[FORMAT ~ `PSV; system "l src/loadPSVDataset.q"]
 LOADDATASET: $[FORMAT ~ `SPLAYED; loadSplayedDataset; loadPSVDataset]
 INDEXON: trim lower opt `$"indexon"
 SORTCOLS: (`$"," vs opt `sortcols) except `
@@ -115,6 +116,11 @@ if[`idx in ko; IdxFilter: parseIdx opt `idx]
 // .Q.gc is not universal; a build without it just does not collect.
 GC: {[] 0}
 if[`gc in key `.Q; GC: .Q.gc]
+// Without .Q.ts a run is still timed by .z.p; only its memory goes unmeasured.
+TS: {[f; a] (0N 0N; f . a)}
+if[`ts in key `.Q; TS: .Q.ts]
+CD: {[t] csv 0: t}
+if[`cd in key `.h; CD: .h.cd]
 
 IOStatError: `kB_read`kB_wrtn`kB_sum!3#0Nj
 getKBReadLinux: {[device]
@@ -123,7 +129,7 @@ getKBReadLinux: {[device]
   s: @[{[r] iostats: @[; `disk] first @[; `statistics] first first first value flip value .j.k raze r;
     if[not count iostats; '"empty"];
     m: exec `long$sum kB_read, `long$sum kB_wrtn from iostats;
-    m, ([kB_sum: sum m])}; r; {x}];
+    m, (enlist `kB_sum)!enlist sum m}; r; {x}];
   $[99h ~ type s; s; IOStatError]}
 getKBRead: getKBReadLinux
 if["false" ~ lower getenv `IOSTAT; getKBRead: {[device] IOStatError}]
@@ -162,8 +168,8 @@ writeRes: {[idx; query; status; ts; memusage; io; ressize]
 
 flushCaches: {[] -1 raze system getenv[`FLUSH], " ", DB;}
 
-setupRow: {[idx; desc; status; ts; memusage; io; ressize]
-  writeRes[string idx; desc; status; ts; memusage; io; ressize]}
+setupRow: {[idx; what; status; ts; memusage; io; ressize]
+  writeRes[string idx; what; status; ts; memusage; io; ressize]}
 
 statusOf: {[timing] $[count e: timing 3; e; "success"]}
 
@@ -171,7 +177,7 @@ statusOf: {[timing] $[count e: timing 3; e; "success"]}
 timed: {[f; args]
   io: (), getKBRead[Device] `kB_read;
   s: .z.p;
-  r: .[.Q.ts; (f; args); {(0N 0N; x)}];
+  r: .[TS; (f; args); {(0N 0N; x)}];
   e: .z.p;
   io,: getKBRead[Device] `kB_read;
   (e - s; last first r; io; $[10h ~ type last r; last r; ""])}
@@ -208,8 +214,8 @@ loadIntoMemory: {[db; date; sortCols; attrib]
     r: timed[addAttr; (c; attrib c)];
     setupRow[-3; "index"; statusOf r; r 0; r 1; r 2; NYI]}[attrib] each key attrib;}
 
-captureTableStats: {[tableStatsDir]
-  tableStatsFile: .Q.dd[tableStatsDir; `$"stats.yaml"];
+captureTableStats: {[statsDir]
+  tableStatsFile: .Q.dd[statsDir; `$"stats.yaml"];
   if[not ()~key tableStatsFile; hdel tableStatsFile];
   h: hopen tableStatsFile;
   h "proprietary: 'no'\n";
@@ -241,7 +247,7 @@ persistOutput: {[dir; res; idx]
   / the column for .h.cd to format.
   fmt6: {[c] $[10h ~ type r: @[{[c] .Q.f[6] each c}; c; {x}]; c; r]};
   cs: {[fmt6; cs; c] cs[c]: fmt6 cs c; cs}[fmt6]/[cs; m[`c] where m[`t] in "ef"];
-  .Q.dd[dir; `$"queryoutput_", idx, ".csv"] 0: .h.cd origCols xcol flip cs;}
+  .Q.dd[dir; `$"queryoutput_", idx, ".csv"] 0: CD origCols xcol flip cs;}
 
 // Persisting the output is telemetry: a failure is worth a warning, not the
 // loss of every query after it.
@@ -291,7 +297,7 @@ runQuery: {[idx; querytags; instrument; query]
 
   GC[];
   s: .z.p;
-  r: .[.Q.ts; (value; enlist query); {(0N 0N; x)}];
+  r: .[TS; (value; enlist query); {(0N 0N; x)}];
   ts,: .z.p - s;
   res: last r;
   if[10h ~ type res; writeRes[idx; query; res; ts; 0Nj; io; NYI]; :()];
@@ -305,7 +311,7 @@ Device: first system "./src/resolve_device.sh ", DB
 
 loadIntoMemory[DB; DATE; SORTCOLS; getAttrib[INDEXON; SORTCOLS]]
 
-if[`tableStatsDir in ko; captureTableStats hsym `$opt `tableStatsDir]
+if[`statsDir in ko; captureTableStats hsym `$opt `statsDir]
 
 -1 "Loading parameters from ", 1_string PARAMDIR
 // A parameter this implementation cannot build must stay unset, so the queries

@@ -23,7 +23,10 @@ loadSplayedDataset: {[src; date]
   {[dpath; tName]
     -1 "loading table ", string tName;
     tName set select from get[.Q.dd[dpath; `$string[tName], "/"]] where i>-1;
+    / symbols instead of enums against the global sym vector, as src/runQueries.q does
+    @[tName; where 20h=type each flip value tName; value];
     -1 "  shape of ", string[tName], ": ", string[count value tName], " x ",
       string count cols value tName;
     }[dpath] each `master`trade`quote;
+  delete sym from `.;
   }
