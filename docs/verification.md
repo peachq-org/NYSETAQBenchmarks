@@ -40,7 +40,7 @@ Two float cells `a` and `b` agree when both are null, or they are equal, or
     |a - b| <= max(rtol * max(|a|, |b|), 1e-9) + slack(a) + slack(b)
 
 - **`rtol` is 1e-6.** Relative, so a sum of 4.6e9 and a spread of 0.01 are held to the same number of digits;
-  upstream's absolute 5e-5 is far too loose for the first and far too tight for neither. The 1e-9 floor stops a value
+  upstream's absolute 5e-5 demands fourteen significant digits of the first and accepts a 0.5% error in the second. The 1e-9 floor stops a value
   that should be zero from failing on rounding noise.
 - **`slack` is how the cell was printed.** A cell in fixed notation with six or more decimals carries half a unit in
   its last place (`0.120348` carries 5e-7). Both q runners write floats with `.Q.f[6]`

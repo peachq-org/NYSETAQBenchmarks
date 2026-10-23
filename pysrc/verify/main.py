@@ -20,20 +20,22 @@ import yaml
 
 import canon
 import solutions
-from compare import MISSING, NOT_WRITTEN, OK, UNRESOLVED, Verdict, compare
+from compare import MISSING, NOT_WRITTEN, OK, ORDER_ONLY, SHAPE_DIFF, UNRESOLVED, VALUE_DIFF, Verdict
 from consensus import decide, from_frame, judge, unresolved
 
-FAILS = ("value-diff", "shape-diff", "order-only", MISSING)
+FAILS = (VALUE_DIFF, SHAPE_DIFF, ORDER_ONLY, MISSING)
 LEDGER_COLUMNS = ["verified", "solution", "implementation", "engineversion", "queryfile", "queryhash", "paramhash",
                   "datadate", "size", "ok", "fail", "unresolved", "notwritten", "queries", "commit"]
 
 
 def parse_idx(spec: str) -> set:
-    """Same forms as the runners' -idx: 42, 32,42,50 or 40-44."""
-    if "-" in spec:
-        lo, hi = spec.split("-")
-        return set(range(int(lo), int(hi) + 1))
-    return {int(i) for i in spec.split(",")}
+    """The runners' -idx forms, as pysrc/queryrunner/main.py's parse_idx_filter reads them; not imported from
+    there, because that would make the verifier load a runner and its dependencies."""
+    picked = set()
+    for part in spec.split(","):
+        lo, _, hi = part.strip().partition("-")
+        picked.update(range(int(lo), int(hi or lo) + 1))
+    return picked
 
 
 def read_psv(path: Path) -> list:
@@ -84,7 +86,7 @@ class Solution:
         try:
             return canon.read(path)
         except Exception as e:
-            return Verdict("shape-diff", f"unreadable: {e}"[:200])
+            return Verdict(SHAPE_DIFF, f"unreadable: {e}"[:200])
 
 
 def float32_allowance(path: Path) -> dict:
@@ -101,7 +103,8 @@ def golden_path(root: Path, idx: int) -> Path:
 
 def run(args) -> int:
     started = time.time()
-    meta = [row for row in read_psv(Path(args.querymeta)) if not args.idx or int(row["idx"]) in parse_idx(args.idx)]
+    wanted = parse_idx(args.idx) if args.idx else None
+    meta = [row for row in read_psv(Path(args.querymeta)) if wanted is None or int(row["idx"]) in wanted]
     result_dirs = [Path(r) for r in args.results]
     # run_solution creates every attempted solution's directory, so an empty one is a solution that answered nothing.
     panel = [Solution(d, result_dirs) for d in sorted(Path(args.outputs).iterdir()) if d.is_dir()]
@@ -127,7 +130,7 @@ def run(args) -> int:
             (verdicts if isinstance(a, Verdict) else answers)[s.name] = a
         if args.reference:
             ref = answers.get(args.reference)
-            verdicts.update({n: compare(ref, c, order, rtol) for n, c in answers.items()} if ref else
+            verdicts.update(judge(ref, answers, [], order, rtol) if ref else
                             unresolved(answers, f"reference {args.reference} has no answer"))
             source = args.reference
         else:
@@ -138,8 +141,7 @@ def run(args) -> int:
                 verdicts.update(judge(outcome.golden, answers, outcome.agreeing, order, rtol))
                 source = "consensus"
             elif stored.exists():
-                verdicts.update({n: compare(from_frame(pl.read_parquet(stored)), c, order, rtol)
-                                 for n, c in answers.items()})
+                verdicts.update(judge(from_frame(pl.read_parquet(stored)), answers, [], order, rtol))
                 source = "stored"
             else:
                 verdicts.update(unresolved(answers, outcome.evidence))
