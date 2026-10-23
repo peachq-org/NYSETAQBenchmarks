@@ -39,7 +39,7 @@ if[count missing: MANDATORY except ko;
   -2 "Run with -help for usage.";
   exit 1]
 
-ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`statsDir`tags`instrument`idx`store`debug
+ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`statsDir`tags`instrument`idx`store`s`debug
 if[count unknown: ko except ALLOWED;
   -2 "Unknown parameter(s): ", ", " sv string unknown;
   -2 "Run with -help for usage.";

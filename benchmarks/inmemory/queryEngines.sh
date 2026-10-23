@@ -161,12 +161,13 @@ function execute_queries () {
         fi
         if engine_enabled l; then
             # l (lv1.sh) is a q implementation, so it shares the qlite runner and database.
-            if solution_enabled "l" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
+            # It takes -s like q, so it runs once per thread count.
+            if solution_enabled "l"; then
                 [[ -x "${LBIN:-}" ]] || { echo "the l engine needs LBIN set to the l binary" >&2; exit 1; }
                 run_solution "l" "${LBIN}" ./src/qengine/runQueries.lite.q \
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed \
                     -sortcols "time" -indexon "sym" \
-                    -queryfile ./artifacts/queries/inmemory/kdb.psv
+                    -queryfile ./artifacts/queries/inmemory/kdb.psv -s ${s}
             fi
         fi
         if engine_enabled rayforce; then
