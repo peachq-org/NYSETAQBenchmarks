@@ -29,9 +29,9 @@ if ! command -v q > /dev/null; then
     echo "SKIP: no 'q' on PATH. test/inmemory.sh builds its kdb+ database with" >&2
     echo "      KDB-X, so every arm except qlite needs one. Run the qlite arm on" >&2
     echo "      its own with:" >&2
+    echo "        SIZE=full DATAFORMAT=splayed ./generateDB.sh ${TESTPSV} DIR/splayed DATE" >&2
     echo "        ./benchmarks/inmemory/queryEngines.sh --db-dir DIR --param-dir ... \\" >&2
-    echo "          --datadate ... --engines qlite --solutions qlite" >&2
-    echo "      where DIR/psv holds the TAQ PSV files (see ${TESTPSV})." >&2
+    echo "          --datadate DATE --engines qlite --solutions qlite" >&2
     exit 77
 fi
 
@@ -42,14 +42,11 @@ fi
 # YHGJ), so a smaller SIZE (e.g. small = Z-Z) would omit data those queries need.
 rm -rf "${TESTDB}/kdb"
 rm -rf "${TESTDB}/parquet/rowgroup"
+rm -rf "${TESTDB}/splayed"
 
 SIZE=full DATAFORMAT=kdb ./generateDB.sh "${TESTPSV}" "${TESTDB}/kdb" "${TESTDBDATE}"
 SIZE=full SYMBOLSTOREDAS=ROWGROUP DATAFORMAT=parquet ./generateDB.sh "${TESTPSV}" "${TESTDB}/parquet/rowgroup" "${TESTDBDATE}"
-
-# The qlite arm reads the PSV files themselves, from the same --db-dir layout
-# the generated databases live in.
-mkdir -p "${TESTDB}/psv"
-cp "${TESTPSV}"/*.psv "${TESTDB}/psv/"
+SIZE=full DATAFORMAT=splayed ./generateDB.sh "${TESTPSV}" "${TESTDB}/splayed" "${TESTDBDATE}"
 
 # Generate the current query-parameter contract from this exact database. This
 # avoids stale checked-in smoke fixtures when parameter names/query coverage
@@ -87,6 +84,9 @@ rm -rf "${RESULTDIR}"
 ./benchmarks/inmemory/queryEngines.sh --db-dir "${TESTDB}" --param-dir "${PARAM_DIR}" --datadate "${TESTDBDATE}" --threads "4 16" --result-dir "${RESULTDIR}" "${QUERY_ENGINE_ARGS[@]}"
 ./benchmarks/inmemory/kdbAttributes.sh --db-dir "${TESTDB}" --param-dir "${PARAM_DIR}" --datadate "${TESTDBDATE}" --threads "4 16" --result-dir "${RESULTDIR}"
 
-python3 ./pysrc/convertToJSFormat.py "${RESULTDIR}" "${RESULTDIR}/data.generated.js"
+# --include-dev-machines because this asserts that the pipeline runs, which is
+# exactly the case the flag exists for; without it the last step fails on any
+# host listed under mappings.yaml 'dev_machines'.
+python3 ./pysrc/convertToJSFormat.py --include-dev-machines "${RESULTDIR}" "${RESULTDIR}/data.generated.js"
 
 popd

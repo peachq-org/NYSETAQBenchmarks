@@ -262,6 +262,7 @@ Rayforce is opt-in and does not change the QuickStart prerequisites.
 | `polars` | Polars. Two solutions, selected with the runner's `-mode` flag: `Polars (Eager)` (`-mode eager`) keeps the tables as `DataFrame`s and runs every query through the eager API, `Polars (Lazy)` (`-mode lazy`) hands the queries `LazyFrame`s and collects them with the streaming engine. Each mode has its own query file (`polars.psv` / `polars_lazy.psv`) | Parquet |
 | `pandas` | Pandas | Parquet |
 | `rayforce` | Rayforce (grouped and parted layouts) | Rayforce splayed |
+| `qlite` | A second q implementation, chosen by `QBIN` (default: the pinned peachq release) | splayed kdb |
 
 So you only need the kdb+ database if you restrict the run to `kdb`/`kdbxsql`/`pykx` (e.g. `--engines kdb,kdbxsql`), and only the Parquet database if you restrict it to `duckdb`/`chdb`/`polars`/`pandas`. Convert the TAQ PSV files to the format(s) you need using `./generateDB.sh`:
 
@@ -270,6 +271,14 @@ So you only need the kdb+ database if you restrict the run to `kdb`/`kdbxsql`/`p
 DATAFORMAT=kdb ./generateDB.sh ${NYSEBENCHMARKDIR}/${SIZE}/psv ${NYSEBENCHMARKDIR}/${SIZE}/kdb ${DATADATE}
 # Hive-partitioned Parquet — needed for the duckdb, chdb, polars, and pandas engines
 SYMBOLSTOREDAS=ROWGROUP DATAFORMAT=parquet ./generateDB.sh ${NYSEBENCHMARKDIR}/${SIZE}/psv ${NYSEBENCHMARKDIR}/${SIZE}/parquet/rowgroup ${DATADATE}
+```
+
+The `qlite` arm needs neither, and no KDB-X binary: its splayed kdb database is
+built from the PSV files by the same q implementation that will run the queries.
+
+```bash
+# splayed kdb — needed for the qlite engine
+DATAFORMAT=splayed ./generateDB.sh ${NYSEBENCHMARKDIR}/${SIZE}/psv ${NYSEBENCHMARKDIR}/${SIZE}/splayed ${DATADATE}
 ```
 
 To run Rayforce, first generate the kdb+ database above, then generate the
