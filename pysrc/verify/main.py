@@ -103,10 +103,10 @@ def run(args) -> int:
     started = time.time()
     meta = [row for row in read_psv(Path(args.querymeta)) if not args.idx or int(row["idx"]) in parse_idx(args.idx)]
     result_dirs = [Path(r) for r in args.results]
-    panel = [Solution(d, result_dirs) for d in sorted(Path(args.outputs).iterdir())
-             if d.is_dir() and any(d.glob("queryoutput_*.csv*"))]
+    # run_solution creates every attempted solution's directory, so an empty one is a solution that answered nothing.
+    panel = [Solution(d, result_dirs) for d in sorted(Path(args.outputs).iterdir()) if d.is_dir()]
     if not panel:
-        sys.exit(f"no queryoutput_<idx>.csv files under {args.outputs}")
+        sys.exit(f"no solution directories under {args.outputs}")
     names = [s.name for s in panel]
     impl = {s.name: s.implementation for s in panel}
     allowance = float32_allowance(Path(args.float32))

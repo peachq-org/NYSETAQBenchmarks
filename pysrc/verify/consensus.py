@@ -20,12 +20,19 @@ def _same(a: Canon, b: Canon, order, rtol: dict) -> bool:
     return compare(a, b, order, rtol).verdict == OK
 
 
+def precision(c: Canon) -> float:
+    """Total printing slack of an answer."""
+    slack = [s for s in c.frame.columns if s.endswith(SLACK)]
+    return c.frame.select(pl.sum_horizontal(pl.col(slack).sum())).item() if slack else 0.0
+
+
 def classes(answers: dict, order, rtol: dict) -> list:
-    """Partitions solutions into classes of equal answers, each a list whose first member is its representative.
+    """Partitions solutions into classes of equal answers, each a list whose first member is its representative:
+    every member was compared with it, and the most precisely printed solutions are tried first.
     Solutions of one shape are aligned together once, so a query's large outputs are sorted once each; where
     order is part of the answer, or a column's kinds clash, each pair is compared on its own."""
     by_shape = {}
-    for name in sorted(answers):
+    for name in sorted(answers, key=lambda n: (precision(answers[n]), n)):
         by_shape.setdefault(answers[name].shape, []).append(name)
     found = []
     for names in by_shape.values():
@@ -41,12 +48,6 @@ def classes(answers: dict, order, rtol: dict) -> list:
     return found
 
 
-def precision(c: Canon) -> float:
-    """Total printing slack: the representative of a golden class is its most precisely printed member."""
-    slack = [s for s in c.frame.columns if s.endswith(SLACK)]
-    return c.frame.select(pl.sum_horizontal(pl.col(slack).sum())).item() if slack else 0.0
-
-
 def decide(answers: dict, implementation, order, rtol: dict) -> Outcome:
     """`answers` maps solution -> Canon. The golden is the answer of a class backed by at least MIN_AGREEING
     implementations, and by more implementations than answered anything else."""
@@ -60,8 +61,7 @@ def decide(answers: dict, implementation, order, rtol: dict) -> Outcome:
             len(backing[best[0]]) <= len(answering - backing[best[0]]):
         return Outcome(evidence=f"no majority: {summary}" if found else "no answers")
     winners = found[best[0]]
-    rep = min(winners, key=lambda n: precision(answers[n]))
-    return Outcome(answers[rep], winners, summary)
+    return Outcome(answers[winners[0]], winners, summary)
 
 
 def judge(golden: Canon, answers: dict, agreeing: list, order, rtol: dict) -> dict:

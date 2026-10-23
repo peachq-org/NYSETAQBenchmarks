@@ -1,4 +1,5 @@
 """Compares canonical query outputs (docs/verification.md): alignment, tolerance, verdicts."""
+import math
 from dataclasses import dataclass
 
 import polars as pl
@@ -64,7 +65,7 @@ def _close(kind: str, rtol: float) -> pl.Expr:
     if kind != FLOAT:
         return same
     bound = pl.max_horizontal(pl.max_horizontal(x.abs(), y.abs()) * rtol, pl.lit(ATOL)) + pl.col("sx") + pl.col("sy")
-    return same | ((x - y).abs() <= bound).fill_null(False)
+    return same | (x.is_finite() & y.is_finite() & ((x - y).abs() <= bound)).fill_null(False)
 
 
 def _agree(a: pl.DataFrame, b: pl.DataFrame, n: str, kind: str, rtol: dict) -> pl.Series:
@@ -82,7 +83,7 @@ def _close_cells(x, y, sx, sy, rtol: float) -> bool:
     """The scalar form of _close, for matching the few rows of a tie."""
     if x is None or y is None:
         return x is None and y is None
-    return x == y or abs(x - y) <= max(max(abs(x), abs(y)) * rtol, ATOL) + sx + sy
+    return x == y or math.isfinite(x - y) and abs(x - y) <= max(max(abs(x), abs(y)) * rtol, ATOL) + sx + sy
 
 
 def _matched(a: pl.DataFrame, b: pl.DataFrame, floats: list, rtol: dict) -> bool:

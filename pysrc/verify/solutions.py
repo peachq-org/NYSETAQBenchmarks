@@ -1,4 +1,5 @@
-"""Which implementation each benchmark solution is, and the query file it runs (as in queryEngines.sh)."""
+"""Which implementation each benchmark solution is, and the query file it runs (as in queryEngines.sh and
+kdbAttributes.sh)."""
 import re
 
 QUERIES = "artifacts/queries/inmemory/"
@@ -11,6 +12,8 @@ SOLUTIONS = {
     "KDB-X (Manual Opt)": ("kdb", "kdb_manualopt.psv"),
     "KDB-X (NoAttr)": ("kdb", "kdb_noattr.psv"),
     "KDB-X (Time Sorted)": ("kdb", "kdb_noattr.psv"),
+    "KDB-X (Table Dict)": ("kdb", "kdb_tabledict.psv"),
+    "KDB-X (Table Dict Peach)": ("kdb", "kdb_tabledict.psv"),
     "KDB-X SQL": ("kdb", "sql.psv"),
     "pykx": ("kdb", "pykx.psv"),
     "DuckDB (No index)": ("duckdb", "duckdb.psv"),

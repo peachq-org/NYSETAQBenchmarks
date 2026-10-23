@@ -96,6 +96,11 @@ class Floats(unittest.TestCase):
         self.assertEqual(verdict("v\n0.0\n", "v\n1e-10\n"), OK)
         self.assertEqual(verdict("v\n0.0\n", "v\n1e-8\n"), VALUE_DIFF)
 
+    def test_infinities_match_only_themselves(self):
+        self.assertEqual(verdict("v\n0w\n", "v\ninf\n"), OK)
+        self.assertEqual(verdict("v\ninf\n", "v\n1.0\n"), VALUE_DIFF)
+        self.assertEqual(verdict("v\ninf\n", "v\n-inf\n"), VALUE_DIFF)
+
     def test_q_real_printing_is_inside_the_base_tolerance(self):
         self.assertEqual(verdict("v\n266.667968\n", "v\n266.6679\n"), OK)
 
@@ -155,6 +160,17 @@ class Consensus(unittest.TestCase):
     def test_majority_of_three(self):
         out = self.decide({"a": "v\n1\n", "b": "v\n1\n", "c": "v\n1\n", "d": "v\n2\n", "e": "v\n3\n"})
         self.assertEqual(sorted(out.agreeing), ["a", "b", "c"])
+
+    def test_every_agreeing_solution_was_compared_with_the_golden(self):
+        answers = {"a": "v\n1.000001\n", "b": "v\n1.0\n", "c": "v\n1.0000021\n"}
+        out = self.decide(answers)
+        golden = out.golden
+        for n in out.agreeing:
+            self.assertEqual(compare(golden, table(answers[n]), None, {}).verdict, OK, n)
+
+    def test_kdb_variants_are_one_implementation(self):
+        self.assertEqual({main.solutions.implementation(s) for s in main.solutions.SOLUTIONS if "KDB" in s or s == "pykx"},
+                         {"kdb"})
 
     def test_more_must_agree_than_disagree(self):
         out = self.decide({"a": "v\n1\n", "b": "v\n1\n", "c": "v\n1\n", "d": "v\n2\n", "e": "v\n2\n", "f": "v\n3\n"})
