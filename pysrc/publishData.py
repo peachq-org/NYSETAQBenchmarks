@@ -316,17 +316,23 @@ def curate(summary, page):
 
 
 def history_rows(summary, chosen, envs):
+    """One row per (solution, threads), each version read from the run that measured that thread count."""
+    def stats_of(name, threads):
+        run = chosen[(name, int(threads))]
+        return run, next((p / "stats.yaml" for n, p in solution_stats_dirs(run).items() if RENAMED.get(n, n) == name),
+                         None)
+
     rows = []
     for name, by_threads in summary["mph"].items():
         if name == BASELINE:
             continue
-        version = next(s["version"] for s in summary["solutions"] if s["id"] == name)
         for threads, speed in by_threads.items():
-            run = chosen[(name, int(threads))]
-            stats = next((p for n, p in solution_stats_dirs(run).items() if RENAMED.get(n, n) == name), None)
-            rows.append({"date": str(envs[run]["test date"]), "solution": name, "version": version or "",
-                         "binarySha256": binary_sha256_of(stats / "stats.yaml") if stats else "",
-                         "target": summary["target"], "baselineVersion": summary["baselineVersion"] or "",
+            run, stats = stats_of(name, threads)
+            target = stats_of(BASELINE, threads)[1]
+            rows.append({"date": str(envs[run]["test date"]), "solution": name,
+                         "version": (version_of(stats) if stats else None) or "",
+                         "binarySha256": binary_sha256_of(stats) if stats else "",
+                         "target": summary["target"], "baselineVersion": (version_of(target) if target else None) or "",
                          "threads": int(threads), "size": summary["size"], "datadate": summary["datadate"],
                          "mph": speed["mph"], "mphMedian": speed["mphMedian"], "answered": speed["answered"],
                          "failed": speed["failed"]})
