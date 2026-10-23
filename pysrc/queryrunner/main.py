@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #   "chdb>=4.1.0",
-#   "duckdb==1.5.5",
+#   "duckdb==2.0.0",
 #   "numexpr",
 #   "numpy>=1.26",
 #   "pandas>=2.3",

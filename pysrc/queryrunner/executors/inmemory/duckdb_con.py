@@ -54,6 +54,11 @@ class QueryExecutorDuckDBCon:
         io_load_start = ios.get_io_stat()
         t_load_start = time.perf_counter_ns()
         self.con.execute("SET preserve_insertion_order = true") # this is the default, but make it explicite
+        # DuckDB 2.0 made x/0 IEEE (NaN/Inf), and a NaN poisons avg; the queries were
+        # validated against 1.x, where x/0 is NULL and aggregates skip it.
+        if int(duckdb.__version__.split(".")[0]) >= 2:
+            self.con.execute("SET ieee_floating_point_ops = false")
+            self.con.execute("SET error_on_division_by_zero = false")
         self.con.execute("CREATE TABLE exnames AS SELECT * FROM read_parquet($1)", parameters=[str(db_path / "exnames.parquet")])
 
         self.con.execute("CREATE TABLE master AS SELECT * EXCLUDE (date) FROM read_parquet($1, hive_partitioning=True)",
