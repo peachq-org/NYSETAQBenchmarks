@@ -18,6 +18,9 @@ source "${COMMON_DIR}/../../external/kx/taq/scripts/util.sh"
 THREAD_NRS=(1 4)
 IDX_PARAM=""
 QUERY_OUTPUT_DIR=""
+# How the Python arms are launched. A pre-built environment (PYRUN=/path/to/venv/bin/python)
+# lets a host skip dependencies it must not install, e.g. pykx, which bundles a KX q.
+PYRUN=${PYRUN:-uv run}
 
 # Solutions whose runner exited non-zero, collected by run_solution and reported
 # by run_suite. A crashing runner must not abort the whole suite.
