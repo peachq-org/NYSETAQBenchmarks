@@ -18,10 +18,10 @@ idx|tags|query|parameter
 17||SELECT sym, time, bid, ask, bsize, asize, cond, ex FROM {quote} WHERE sym = {freqInstr} ORDER BY rowid|
 18||SELECT sym, time, bid, ask, bsize, asize, cond, ex FROM {quote} WHERE sym IN {fiftyInstrs} AND 2000<bsize+asize ORDER BY rowid|
 19||SELECT sym, time, bid, ask, bsize, asize, cond, ex FROM {quote} WHERE sym IN {thousandInfreqInstrs} AND 2000<bsize+asize ORDER BY rowid|
-20||SELECT avg((bsize * bid + asize * ask) / (bsize + asize)) AS avgLiqWMid FROM {quote} WHERE sym = {infreqInstr}|
-21||SELECT avg((bsize * bid + asize * ask) / (bsize + asize)) AS avgLiqWMid FROM {quote} WHERE sym = {freqInstr}|
-22||SELECT toIntervalNanosecond(intDiv(toInt64(time), 600000000000) * 600000000000) AS minute, ex, avg((bsize * bid + asize * ask) / (bsize + asize)) AS avgLiqWMid FROM {quote} WHERE sym = {infreqInstr} GROUP BY minute, ex ORDER BY minute, ex|
-23||SELECT toIntervalNanosecond(intDiv(toInt64(time), 600000000000) * 600000000000) AS minute, ex, avg((bsize * bid + asize * ask) / (bsize + asize)) AS avgLiqWMid FROM {quote} WHERE sym = {freqInstr} GROUP BY minute, ex ORDER BY minute, ex|
+20||SELECT avg(divideOrNull(bsize * bid + asize * ask, bsize + asize)) AS avgLiqWMid FROM {quote} WHERE sym = {infreqInstr}|
+21||SELECT avg(divideOrNull(bsize * bid + asize * ask, bsize + asize)) AS avgLiqWMid FROM {quote} WHERE sym = {freqInstr}|
+22||SELECT toIntervalNanosecond(intDiv(toInt64(time), 600000000000) * 600000000000) AS minute, ex, avg(divideOrNull(bsize * bid + asize * ask, bsize + asize)) AS avgLiqWMid FROM {quote} WHERE sym = {infreqInstr} GROUP BY minute, ex ORDER BY minute, ex|
+23||SELECT toIntervalNanosecond(intDiv(toInt64(time), 600000000000) * 600000000000) AS minute, ex, avg(divideOrNull(bsize * bid + asize * ask, bsize + asize)) AS avgLiqWMid FROM {quote} WHERE sym = {freqInstr} GROUP BY minute, ex ORDER BY minute, ex|
 24|||infreqInstr
 25|||freqInstr
 26|||fiftyInstrs
@@ -47,11 +47,11 @@ idx|tags|query|parameter
 46||SELECT sym, avgWeighted(bid, toFloat64(bsize)) AS weightedBidPrice, avgWeighted(ask, toFloat64(asize)) AS weightedOfferPrice FROM {quote} WHERE sym IN {thousandInfreqInstrs} GROUP BY sym ORDER BY sym|
 47||SELECT time, avg(price) OVER (ORDER BY time ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS price FROM {trade} WHERE sym = {infreqInstr} ORDER BY rowid|
 48||SELECT time, avg(price) OVER (ORDER BY time ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS price FROM {trade} WHERE sym = {freqInstr} ORDER BY rowid|
-49||SELECT sym, time, avg((bsize * bid + asize * ask) / (bsize + asize)) OVER w AS movingLiqWMid, avg(asize + bsize) OVER w AS movingsize FROM {quote} WHERE sym IN {fiftyInstrs} WINDOW w AS (PARTITION BY sym ORDER BY rowid ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) ORDER BY sym, rowid|
-50||SELECT sym, time, avg((bsize * bid + asize * ask) / (bsize + asize)) OVER w AS movingLiqWMid, avg(asize + bsize) OVER w AS movingsize FROM {quote} WHERE sym IN {thousandInfreqInstrs} WINDOW w AS (PARTITION BY sym ORDER BY rowid ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) ORDER BY sym, rowid|
-51||SELECT time, sum(size) OVER (ORDER BY time ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS size FROM {trade} WHERE sym = {infreqInstr} ORDER BY rowid|
-52||SELECT time, sum(size) OVER (ORDER BY time ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS size FROM {trade} WHERE sym = {freqInstr} ORDER BY rowid|
-53||SELECT time, sum(size) OVER (ORDER BY time ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS size FROM {trade} WHERE ex = 'L' ORDER BY rowid|
+49||SELECT sym, time, avg(divideOrNull(bsize * bid + asize * ask, bsize + asize)) OVER w AS movingLiqWMid, avg(asize + bsize) OVER w AS movingsize FROM {quote} WHERE sym IN {fiftyInstrs} WINDOW w AS (PARTITION BY sym ORDER BY rowid ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) ORDER BY sym, rowid|
+50||SELECT sym, time, avg(divideOrNull(bsize * bid + asize * ask, bsize + asize)) OVER w AS movingLiqWMid, avg(asize + bsize) OVER w AS movingsize FROM {quote} WHERE sym IN {thousandInfreqInstrs} WINDOW w AS (PARTITION BY sym ORDER BY rowid ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) ORDER BY sym, rowid|
+51||SELECT time, sum(size) OVER (ORDER BY rowid ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS size FROM {trade} WHERE sym = {infreqInstr} ORDER BY rowid|
+52||SELECT time, sum(size) OVER (ORDER BY rowid ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS size FROM {trade} WHERE sym = {freqInstr} ORDER BY rowid|
+53||SELECT time, sum(size) OVER (ORDER BY rowid ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS size FROM {trade} WHERE ex = 'L' ORDER BY rowid|
 54||SELECT sym, time, price, size, sum(price * size) OVER w / sum(size) OVER w AS movingvwap FROM {trade} WHERE time BETWEEN INTERVAL 480 MINUTE AND INTERVAL 495 MINUTE WINDOW w AS (PARTITION BY sym ORDER BY rowid ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) ORDER BY rowid|
 55||SELECT time, sum(size) OVER (ORDER BY rowid ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS size FROM {trade} WHERE ex = 'T' ORDER BY rowid|
 56||SELECT * EXCEPT (max_size, rowid) FROM (SELECT *, max(size) OVER (PARTITION BY ex) AS max_size FROM {trade}) WHERE size = max_size ORDER BY rowid|
