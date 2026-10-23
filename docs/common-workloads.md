@@ -1,9 +1,9 @@
 # Common workloads (idx 101+)
 
-KX's 84 queries are KX's benchmark and stay exactly as KX wrote them. This fork adds a second, separate set of nine
-queries, idx 101 to 109, for TAQ work the 84 do not cover. They live in their own files, run as their own invocation,
-are verified by the same rule, and are scored and published on their own. They are never mixed into the 84, their
-times, or their MPH.
+KX's 84 queries are KX's benchmark: this fork fixes translations of them (`FORK.md`) but adds no query to them.
+It adds a second, separate set of nine queries, idx 101 to 109, for TAQ work the 84 do not cover. They live in
+their own files, run as their own invocation, are verified by the same rule, and are scored and published on their
+own. They are never mixed into the 84, their times, or their MPH.
 
 ## Why a second set
 

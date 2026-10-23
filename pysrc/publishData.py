@@ -99,10 +99,9 @@ from pathlib import Path
 import yaml
 
 from convertToJSFormat import cpu_model_of, numanode_of, parse_stats, solution_stats_dirs
+from verify import solutions as verify_solutions
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "pysrc" / "verify"))
-import solutions as verify_solutions  # noqa: E402
 QUERYMETA = ROOT / "artifacts" / "queries" / "inmemory" / "querymeta.psv"
 EXTRA_QUERYMETA = QUERYMETA.parent / "extra" / "querymeta.psv"
 BASELINE = "DuckDB (Index)"
@@ -257,11 +256,14 @@ def speeds(times, target):
             for name, rs in ratios.items() if rs}
 
 
+def setting(runs):
+    return ({cpu_model_of(env) for _, env in runs}, {str(env["parameters"]["datadate"]) for _, env in runs},
+            {numanode_of(env) for _, env in runs})
+
+
 def summarise(runs, chosen, kept, size, verified, querymeta=QUERYMETA):
     used = [(run, env) for run, env in runs if run in set(chosen.values())]
-    cpus = {cpu_model_of(env) for _, env in runs}
-    dates = {str(env["parameters"]["datadate"]) for _, env in runs}
-    numa = {numanode_of(env) for _, env in runs}
+    cpus, dates, numa = setting(runs)
     if len(cpus) != 1 or len(dates) != 1 or len(numa) != 1:
         raise SystemExit(f"publishData: runs span machines {sorted(cpus)}, data dates {sorted(dates)} and NUMA "
                          f"nodes {sorted(numa)}; publish one machine, data date and NUMA setting at a time")
@@ -380,11 +382,6 @@ def record_history(path, new_rows):
         fh.write("|".join(HISTORY_FIELDS) + "\n")
         fh.writelines("|".join(str(r[k]) for k in HISTORY_FIELDS) + "\n" for r in rows)
     return rows
-
-
-def setting(runs):
-    return ({cpu_model_of(env) for _, env in runs}, {str(env["parameters"]["datadate"]) for _, env in runs},
-            {numanode_of(env) for _, env in runs})
 
 
 def add_extra(summary, runs, chosen, kept, verdicts, page):
