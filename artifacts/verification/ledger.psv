@@ -1,0 +1,11 @@
+verified|solution|implementation|engineversion|queryfile|queryhash|paramhash|datadate|size|ok|fail|unresolved|notwritten|queries|commit
+2026-10-23|DuckDB (Index)|duckdb|2.0.0|artifacts/queries/inmemory/duckdb.psv|52382e45c519|ac4b0b7921be|20260701|tiny|83|1|0|0|84|c808a50
+2026-10-23|Pandas|pandas|3.1.0|artifacts/queries/inmemory/pandas.psv|90311883057b|ac4b0b7921be|20260701|tiny|84|0|0|0|84|c808a50
+2026-10-23|Polars (Eager)|polars|2.0.0|artifacts/queries/inmemory/polars.psv|155bf2fc3e68|ac4b0b7921be|20260701|tiny|73|11|0|0|84|c808a50
+2026-10-23|Polars (Lazy)|polars|2.0.0|artifacts/queries/inmemory/polars_lazy.psv|100ce5194e56|ac4b0b7921be|20260701|tiny|73|11|0|0|84|c808a50
+2026-10-23|Rayforce|rayforce|{version:"2.11.5" build-date:"2026-10-23"}|artifacts/queries/inmemory/rayforce.psv|7fdfc006f214|ac4b0b7921be|20260701|tiny|83|1|0|0|84|c808a50
+2026-10-23|Rayforce Parted|rayforce|{version:"2.11.5" build-date:"2026-10-23"}|artifacts/queries/inmemory/rayforce.psv|7fdfc006f214|ac4b0b7921be|20260701|tiny|81|3|0|0|84|c808a50
+2026-10-23|chDB (Memory)|chdb|4.4.0|artifacts/queries/inmemory/chdb.psv|0d1db758e2e3|ac4b0b7921be|20260701|tiny|71|7|0|6|84|c808a50
+2026-10-23|l|l|1 2026.10.19|artifacts/queries/inmemory/kdb.psv|299bce4552d0|ac4b0b7921be|20260701|tiny|84|0|0|0|84|c808a50
+2026-10-23|peachq|peachq|5 2026.10.22|artifacts/queries/inmemory/kdb.psv|299bce4552d0|ac4b0b7921be|20260701|tiny|82|2|0|0|84|c808a50
+2026-10-23|peachq (via DuckDB)|peachq|5 2026.10.22|artifacts/queries/inmemory/kdb.psv|299bce4552d0|ac4b0b7921be|20260701|tiny|82|2|0|0|84|c808a50
