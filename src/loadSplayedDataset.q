@@ -29,4 +29,6 @@ loadSplayedDataset: {[src; date]
       string count cols value tName;
     }[dpath] each `master`trade`quote;
   delete sym from `.;
+  / exchange names as symbols, as src/runQueries.q's loadKDBDBIntoMemory leaves them
+  if[`exnames in key `.; if[0h ~ type value exnames; exnames:: `$exnames]];
   }
