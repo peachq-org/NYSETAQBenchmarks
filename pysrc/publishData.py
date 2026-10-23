@@ -45,8 +45,8 @@ data.js schema::
 A solution id is its results.psv name, so verdicts, the drill-down and the
 page all key on one string. Warm ms is min(run2, run3). Setup times are run 1
 of the load rows: load is idx 0 plus idx -1 (transform), sort -2, index -3,
-store -4. Every run must come from one machine and one data date; a mixed tree
-is refused rather than averaged. ``history`` is keyed by the date the run
+store -4. Every run must come from one machine, one data date and one NUMA
+setting; a mixed tree is refused rather than averaged. ``history`` is keyed by the date the run
 happened plus the binary's sha256, never by version: peachq reuses release
 numbers for different builds.
 """
@@ -61,6 +61,8 @@ import sys
 from pathlib import Path
 
 import yaml
+
+from convertToJSFormat import cpu_model_of, numanode_of
 
 ROOT = Path(__file__).resolve().parent.parent
 QUERYMETA = ROOT / "artifacts" / "queries" / "inmemory" / "querymeta.psv"
@@ -179,7 +181,7 @@ def stage_results(runs, chosen, verdicts, out):
 
 
 def ns_to_ms(value):
-    return round(int(value) / 1e6, 3) if value else None
+    return round(int(value) / 1e6, 6) if value else None
 
 
 def version_of(stats_text):
@@ -193,11 +195,12 @@ def version_of(stats_text):
 
 def summarise(runs, chosen, kept, size, verified):
     used = [(run, env) for run, env in runs if run in set(chosen.values())]
-    cpus = {env["system"]["cpu"].get("model", env["system"]["cpu"].get("Model")) for _, env in used}
-    dates = {str(env["parameters"]["datadate"]) for _, env in used}
-    if len(cpus) != 1 or len(dates) != 1:
-        raise SystemExit(f"publishData: runs span machines {sorted(cpus)} and data dates {sorted(dates)}; "
-                         "publish one machine and one data date at a time")
+    cpus = {cpu_model_of(env) for _, env in runs}
+    dates = {str(env["parameters"]["datadate"]) for _, env in runs}
+    numa = {numanode_of(env) for _, env in runs}
+    if len(cpus) != 1 or len(dates) != 1 or len(numa) != 1:
+        raise SystemExit(f"publishData: runs span machines {sorted(cpus)}, data dates {sorted(dates)} and NUMA "
+                         f"nodes {sorted(numa)}; publish one machine, data date and NUMA setting at a time")
     newest = max(used, key=lambda pair: stamp(pair[1]))[1]
     system = newest["system"]
 
@@ -226,7 +229,7 @@ def summarise(runs, chosen, kept, size, verified):
         for idx, phase in SETUP_PHASES.items():
             r = by_idx.get(idx)
             if r and r["status"] == "success" and ns_to_ms(r["run1timeNS"]) is not None:
-                phases[phase] = round((phases[phase] or 0) + ns_to_ms(r["run1timeNS"]), 3)
+                phases[phase] = round((phases[phase] or 0) + ns_to_ms(r["run1timeNS"]), 6)
         setup.setdefault(name, {})[str(threads)] = phases
 
     order = list(SOLUTIONS) + sorted(set(times) - set(SOLUTIONS))

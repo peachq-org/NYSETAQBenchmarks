@@ -86,6 +86,18 @@ class PublishTests(unittest.TestCase):
                      if '"solution":"peachq"' in line)
         self.assertEqual(entry["result"]["1"], [[1000000] * 3, [None] * 3, [None] * 3])
 
+    def test_mixed_numa_settings_are_refused(self):
+        tree = self.temp / "numa"
+        for name, node in (("unpinned", ""), ("pinned", "0")):
+            run = tree / name
+            run.mkdir(parents=True)
+            (run / "environment.yaml").write_text(ENVIRONMENT + f'envvars:\n  NUMANODE: "{node}"\n')
+            (run / "results.psv").write_text(HEADER + "\n" + row("DuckDB (Index)", 1, "success", 1) + "\n")
+        done = subprocess.run([sys.executable, str(ROOT / "pysrc/publishData.py"), str(tree), str(self.temp / "s2"),
+                               "--size", "tiny", "--unverified"], cwd=ROOT, capture_output=True, text=True)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("NUMA", done.stderr)
+
     def test_go_refuses_without_verdicts(self):
         stage = self.temp / "refused"
         env = dict(os.environ, GO="1", PEACHQ_HOST="nobody@invalid.invalid", PYTHON=sys.executable)
