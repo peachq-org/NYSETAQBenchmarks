@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #   "chdb>=4.1.0",
-#   "duckdb==1.5.5",
+#   "duckdb==2.0.0",
 #   "numexpr",
 #   "numpy>=1.26",
 #   "pandas>=2.3",
@@ -20,21 +20,12 @@ Script to run queries on NYSE TAQ and collect performance metrics (like executio
 
 Environment variables:
   FLUSH               (required) Path to the cache-flush binary; called before each cold run
-  CHDB_THREADS        (optional) Number of threads for the chDB engine
+  CHDB_THREADS        (optional) Number of threads for the chDB engines
+  CHDB_COMPRESS       (optional) Hold the chDB Memory tables compressed
   DUCKDB_THREADS      (optional) Number of threads for DuckDB engines
   NUMEXPR_NUM_THREADS (optional) Number of threads for the Pandas/numexpr engine
 """
-import os
-if 'CHDB_THREADS' in os.environ:
-    os.environ.setdefault('OMP_NUM_THREADS', os.environ['CHDB_THREADS'])
-    os.environ.setdefault('OMP_DYNAMIC', 'FALSE')
-    os.environ.setdefault('OPENBLAS_NUM_THREADS', os.environ['CHDB_THREADS'])
-    os.environ.setdefault('MKL_NUM_THREADS', os.environ['CHDB_THREADS'])
-
 import argparse
-import pyarrow as pa
-if 'CHDB_THREADS' in os.environ:
-    pa.set_cpu_count(int(os.environ['CHDB_THREADS']))
 import contextlib
 import csv
 import gc
@@ -178,11 +169,17 @@ def main(args: argparse.Namespace) -> None:
     storage_backend = args.storage_backend.lower()
     if storage_backend == "memory":
         if engine == "polars":
+            import polars as pl
             if len(args.indexon) > 0:
                 raise ValueError("Polars does not support indices")
-            from executors.inmemory.polars import QueryExecutorPolarsInMemory
-            import polars as pl
-            runner = QueryExecutorPolarsInMemory(params, sort_cols=args.sortcols, datadate=args.date)
+            if args.mode == "lazy":
+                from executors.inmemory.polars_lazy_streaming import QueryExecutorPolarsLazy
+                runner = QueryExecutorPolarsLazy(params, sort_cols=args.sortcols, datadate=args.date)
+            elif args.mode == "eager":
+                from executors.inmemory.polars_eager import QueryExecutorPolarsEager
+                runner = QueryExecutorPolarsEager(params, sort_cols=args.sortcols, datadate=args.date)
+            else:
+                raise ValueError("Polars engine requires -mode to be specified as either 'eager' or 'lazy'")
             threadnr = pl.thread_pool_size()
         elif engine == "duckdb_con":
             from executors.inmemory.duckdb_con import QueryExecutorDuckDBCon
@@ -193,13 +190,18 @@ def main(args: argparse.Namespace) -> None:
                 con.execute(f"SET threads = {os.environ['DUCKDB_THREADS']}")
             threadnr = con.sql("SELECT current_setting('threads')").fetchall()[0][0]
             logger.info("Using DuckDB with %s threads", threadnr)
-        elif engine == "chdb":
+        elif engine in ("chdb", "chdb_pyarrow"):
             if len(args.indexon) > 0:
                 raise ValueError("chDB does not support indices")
-            from executors.inmemory.chdb import QueryExecutorChDB
-            runner = QueryExecutorChDB(params, sort_cols=args.sortcols, datadate=args.date)
+            # chdb queries ClickHouse Memory tables, chdb_pyarrow queries the
+            # Arrow tables through chDB's Python() table function.
+            if engine == "chdb":
+                from executors.inmemory.chdb import QueryExecutorChDB as ChDBExecutor
+            else:
+                from executors.inmemory.chdb_pyarrow import QueryExecutorChDBPyArrow as ChDBExecutor
+            runner = ChDBExecutor(params, sort_cols=args.sortcols, datadate=args.date)
             threadnr = runner.threads
-            logger.info("Using chDB with %s threads", threadnr)
+            logger.info("Using %s with %s threads", ChDBExecutor.__name__, threadnr)
         elif engine == "pykx":
             from executors.inmemory.pykx import QueryExecutorPyKXInMemory
             import pykx as kx
@@ -212,19 +214,6 @@ def main(args: argparse.Namespace) -> None:
             runner = QueryExecutorPandas(params, sort_cols=args.sortcols)
             import numexpr
             threadnr = os.environ.get('NUMEXPR_NUM_THREADS', numexpr.nthreads)
-        else:
-            raise ValueError(f"Invalid engine parameter: {args.engine}")
-    elif storage_backend == "disk":
-        if engine == "polars":
-            from executors.ondisk.polars import QueryExecutorPolars
-            import polars as pl
-            runner = QueryExecutorPolars(params)
-            threadnr = pl.thread_pool_size()
-        elif engine == "pykx":
-            from executors.ondisk.pykx import QueryExecutorPyKX
-            import pykx as kx
-            runner = QueryExecutorPyKX(params)
-            threadnr = kx.q.system.num_threads
         else:
             raise ValueError(f"Invalid engine parameter: {args.engine}")
     else:
@@ -241,7 +230,13 @@ def main(args: argparse.Namespace) -> None:
     row_start = [storage_backend, "nyi", threadnr, "Python", engine, "",
         ','.join(args.indexon)]
     ios = IOStat(args.db)
-    file_ctx = (open(args.result, 'w', newline='', encoding='utf-8')
+    # buffering=1 (line buffered) so every row written - the header, the setup
+    # rows emitted from the executors' load_resources, and each query row - is on
+    # disk as soon as it is written. An engine loading a large in-memory dataset
+    # can die without unwinding (OOM killer, a segfault in the native engine), and
+    # a block-buffered file would lose everything written up to that point. This
+    # also matches runQueries.q, which writes through an hopen handle.
+    file_ctx = (open(args.result, 'w', newline='', encoding='utf-8', buffering=1)
                 if args.result is not None
                 else contextlib.nullcontext(io.StringIO()))
     logger.info(f"Pid of the tester process: {os.getpid()}")
@@ -250,15 +245,26 @@ def main(args: argparse.Namespace) -> None:
         if args.result is not None:
             writer.writerow(headers)
 
+        # The solution-level fields (proprietary, engineversion, sortcols) are
+        # written before anything is loaded, and the table statistics appended once
+        # the data is in memory. That way stats.yaml exists even when the engine
+        # never gets that far - an in-memory load of a large data size can end with
+        # the OOM killer - so common.sh's add_solution_name can always label the run
+        # with its solution name and the dashboard conversion can report it as
+        # terminated.
+        if args.stats_dir is not None:
+            logger.info("Saving solution statistics to %s", args.stats_dir)
+            args.stats_dir.mkdir(parents=True, exist_ok=True)
+            with open(args.stats_dir / "stats.yaml", 'w') as f:
+                    yaml.dump(runner.get_engine_stats() | {"sortcols": ','.join(args.sortcols or [])},
+                              f, indent=2, sort_keys=False)
+
         runner.load_resources(db_path=args.db, datadate=args.date, writer=writer, row_start=row_start, ios=ios)
         f_out.flush()
-        if args.table_stats_dir is not None:
-            logger.info("Saving table statistics to %s", args.table_stats_dir)
-            args.table_stats_dir.mkdir(parents=True, exist_ok=True)
-            table_stats_dict = runner.get_table_stats()
-            table_stats_dict["sortcols"] = ','.join(args.sortcols or [])
-            with open(args.table_stats_dir / "stats.yaml", 'w') as f:
-                yaml.dump(table_stats_dict, f, indent=2, sort_keys=False)
+        if args.stats_dir is not None:
+            logger.info("Saving table statistics to %s", args.stats_dir)
+            with open(args.stats_dir / "stats.yaml", 'a') as f:
+                    yaml.dump(runner.get_table_stats(), f, indent=2, sort_keys=False)
 
         if not args.queryfile.exists():
             logger.error("Query file not found: %s", args.queryfile)
@@ -320,10 +326,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('-db', type=Path, required=True, help="Path to hive-partitioned parquet DB root")
     parser.add_argument('-storage_backend', type=str, choices=["memory", "disk"],
         required=True, help="Storage backend. Currently supported memory and disk")
-    parser.add_argument('-engine', type=str, choices=["polars", "duckdb_con", "chdb", "pykx", "pandas"],
-        required=True, help="Query engine. Currently supported: polars, duckdb_con, chdb, pykx, and pandas")
+    parser.add_argument('-engine', type=str, choices=["polars", "duckdb_con", "chdb", "chdb_pyarrow", "pykx", "pandas"],
+        required=True, help="Query engine. Currently supported: polars, duckdb_con, chdb, chdb_pyarrow, pykx, and pandas")
     parser.add_argument('-sortcols', type=parse_sortcols, required=False, help="Comma-separated columns to sort trade/quote by, e.g. 'time' or 'sym,time'.")
     parser.add_argument('-indexon', type=parse_sortcols, required=False, default=[], help="Comma-separated columns to add index to, e.g. 'sym' or 'sym,ex'.")
+    parser.add_argument('-mode', type=str, required=False, choices=["eager", "lazy"], help="Execution mode for the query engine. Currently supported: eager and lazy. Only applicable to Polars engine.")
     parser.add_argument('-queryfile', type=Path, required=True, help="PSV file containing queries")
     parser.add_argument('-querymeta', type=Path, required=True, help="PSV file containing the query metas")
     parser.add_argument('-paramdir', type=Path, required=True, help="Directory containing parameter txt files")
@@ -336,7 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
              "A base scope like 'single' or 'multi' also matches its variants "
              "(single:infrequent/frequent, multi:50/1000infreq).")
     parser.add_argument('-queryOutputDir', type=Path, required=False, help="Directory to save query results.")
-    parser.add_argument('-tableStatsDir', dest='table_stats_dir', type=Path, required=False, help="Directory to save master/trade/quote table statistics YAML files.")
+    parser.add_argument('-statsDir', dest='stats_dir', type=Path, required=False, help="Directory to save the solution's stats.yaml (proprietary/engineversion/sortcols plus the master/trade/quote table statistics).")
     parser.add_argument('-date', type=lambda s: datetime.strptime(s, '%Y%m%d').date(), required=True, help='Date in YYYYMMDD format')
 
     parser.add_argument('-result', type=Path, default=None, help="Output PSV file path. If not provided, results are not written.")

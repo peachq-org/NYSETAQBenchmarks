@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 ENGINES="kdb,kdbxsql,duckdb,chdb,polars,pykx,pandas"
-SOLUTIONS="KDB-X,DuckDB (Index),Polars,Pandas"
+SOLUTIONS="KDB-X,DuckDB (Index),Polars (Lazy),Pandas"
 RESULT_DIR="./results/inmemory"
 
 usage() {
@@ -94,46 +94,80 @@ function execute_queries () {
         fi
         if engine_enabled duckdb; then
             if solution_enabled "DuckDB (No index)"; then
-                run_solution "DuckDB (No index)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "time" -queryfile ./artifacts/queries/inmemory/duckdb.psv
+                run_solution "DuckDB (No index)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "time" -queryfile ./artifacts/queries/inmemory/duckdb.psv
             fi
 
             if solution_enabled "DuckDB (Sym, Time Sort)"; then
-                run_solution "DuckDB (Sym, Time Sort)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "sym,time" -queryfile ./artifacts/queries/inmemory/duckdb.psv
+                run_solution "DuckDB (Sym, Time Sort)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "sym,time" -queryfile ./artifacts/queries/inmemory/duckdb.psv
             fi
 
             if solution_enabled "DuckDB (Index)"; then
-                run_solution "DuckDB (Index)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/duckdb.psv
+                run_solution "DuckDB (Index)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/duckdb.psv
             fi
         fi
         if engine_enabled chdb; then
-            run_solution "chDB" env CHDB_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+            if solution_enabled "chDB (Memory)"; then
+                run_solution "chDB (Memory)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+            fi
+
+            if solution_enabled "chDB (Memory, Compressed)"; then
+                run_solution "chDB (Memory, Compressed)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) CHDB_COMPRESS=1 ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+            fi
+
+            if solution_enabled "chDB (PyArrow)"; then
+                run_solution "chDB (PyArrow)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb_pyarrow -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+            fi
         fi
         if engine_enabled polars; then
-            if solution_enabled "Polars"; then
-                run_solution "Polars" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -sortcols "time" -queryfile ./artifacts/queries/inmemory/polars.psv
+            if solution_enabled "Polars (Eager)"; then
+                run_solution "Polars (Eager)" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -mode eager -sortcols "time" -queryfile ./artifacts/queries/inmemory/polars.psv
+            fi
+            if solution_enabled "Polars (Lazy)"; then
+                run_solution "Polars (Lazy)" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -mode lazy -sortcols "time" -queryfile ./artifacts/queries/inmemory/polars_lazy.psv
             fi
         fi
         if engine_enabled pykx; then
             if solution_enabled "pykx"; then
-                run_solution "pykx" env QARGS="-s ${s}" uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/kdb -engine pykx -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/pykx.psv
+                run_solution "pykx" env QARGS="-s ${s}" ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/kdb -engine pykx -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/pykx.psv
             fi
         fi
         if engine_enabled pandas; then
             if solution_enabled "Pandas"; then
-                run_solution "Pandas" env OMP_NUM_THREADS=$(( s > 1 ? s : 1 )) NUMEXPR_NUM_THREADS=$(( s > 1 ? s : 1 )) MKL_NUM_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine pandas -sortcols "time" -queryfile ./artifacts/queries/inmemory/pandas.psv
+                run_solution "Pandas" env OMP_NUM_THREADS=$(( s > 1 ? s : 1 )) NUMEXPR_NUM_THREADS=$(( s > 1 ? s : 1 )) MKL_NUM_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine pandas -sortcols "time" -queryfile ./artifacts/queries/inmemory/pandas.psv
             fi
         fi
         if engine_enabled qlite; then
             # peachq is single-threaded, so every thread count would report
             # threadcount 1 and emit a duplicate set of rows; run it once.
-            if solution_enabled "qlite" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
+            if solution_enabled "peachq" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
                 # Resolved before the run so an unavailable binary fails here
                 # rather than as an empty command inside run_solution.
                 local QBIN_PATH
                 QBIN_PATH=$(bash ./src/qengine/qbin.sh)
-                run_solution "qlite" "${QBIN_PATH}" ./src/qengine/runQueries.lite.q \
-                    ${COMMONPARAMS} -db ${DB_DIR}/psv -sortcols "time" -indexon "sym" \
+                run_solution "peachq" "${QBIN_PATH}" ./src/qengine/runQueries.lite.q \
+                    ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed \
+                    -sortcols "time" -indexon "sym" \
                     -queryfile ./artifacts/queries/inmemory/kdb.psv
+            fi
+            # The same qSQL on trade and quote stored in DuckDB and linked back as q tables.
+            if solution_enabled "peachq (via DuckDB)" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
+                local QBIN_DUCKDB_PATH
+                QBIN_DUCKDB_PATH=$(bash ./src/qengine/qbin.sh duckdb)
+                run_solution "peachq (via DuckDB)" "${QBIN_DUCKDB_PATH}" ./src/qengine/runQueries.lite.q \
+                    ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed -store duckdb \
+                    -sortcols "time" -indexon "sym" \
+                    -queryfile ./artifacts/queries/inmemory/kdb.psv
+            fi
+        fi
+        if engine_enabled l; then
+            # l (lv1.sh) is a q implementation, so it shares the qlite runner and database.
+            # It takes -s like q, so it runs once per thread count.
+            if solution_enabled "l"; then
+                [[ -x "${LBIN:-}" ]] || { echo "the l engine needs LBIN set to the l binary" >&2; exit 1; }
+                run_solution "l" "${LBIN}" ./src/qengine/runQueries.lite.q \
+                    ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed \
+                    -sortcols "time" -indexon "sym" \
+                    -queryfile ./artifacts/queries/inmemory/kdb.psv -s ${s}
             fi
         fi
         if engine_enabled rayforce; then

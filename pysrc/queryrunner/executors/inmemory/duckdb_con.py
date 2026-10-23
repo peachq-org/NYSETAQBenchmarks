@@ -54,6 +54,11 @@ class QueryExecutorDuckDBCon:
         io_load_start = ios.get_io_stat()
         t_load_start = time.perf_counter_ns()
         self.con.execute("SET preserve_insertion_order = true") # this is the default, but make it explicite
+        # DuckDB 2.0 made x/0 IEEE (NaN/Inf), and a NaN poisons avg; the queries were
+        # validated against 1.x, where x/0 is NULL and aggregates skip it.
+        if int(duckdb.__version__.split(".")[0]) >= 2:
+            self.con.execute("SET ieee_floating_point_ops = false")
+            self.con.execute("SET error_on_division_by_zero = false")
         self.con.execute("CREATE TABLE exnames AS SELECT * FROM read_parquet($1)", parameters=[str(db_path / "exnames.parquet")])
 
         self.con.execute("CREATE TABLE master AS SELECT * EXCLUDE (date) FROM read_parquet($1, hive_partitioning=True)",
@@ -144,8 +149,12 @@ class QueryExecutorDuckDBCon:
     def get_table_size(df) -> None:
         return None
 
+    def get_engine_stats(self) -> dict[str, Any]:
+        return {"proprietary": "no", "engineversion": duckdb.__version__}
+
     def get_table_stats(self) -> dict[str, Any]:
-        table_stats_dict = {"proprietary": "no", "engineversion": duckdb.__version__}
+        """The per-table sections, appended to the stats.yaml get_engine_stats started."""
+        table_stats_dict: dict[str, Any] = {}
         for t_name in ["master", "trade", "quote"]:
             df = self.con.table(t_name)
             table_stats = {
@@ -185,8 +194,12 @@ class QueryExecutorDuckDBCon:
 
     def write_csv(self, res, out_file: Path) -> None:
         tscols = [row[0] for row in self.con.sql("SELECT column_name FROM (DESCRIBE res) WHERE column_type = 'TIMESTAMP_NS'").fetchall()]
+        # Integer nanoseconds of the day, not hour()/minute()/second(): DuckDB 2.0 rounds those through
+        # microseconds, so 09:59:59.999999533 printed as 10:00:00.999999533.
         for col in tscols:
-            self.con.sql(f"CREATE OR REPLACE TABLE res AS SELECT * REPLACE (format('0D{{:02d}}:{{:02d}}:{{:02d}}.{{:09d}}', hour({col}), minute({col}), second({col}), (epoch_ns({col}) % 1000000000)) AS {col}) FROM res")
+            ns = f"(epoch_ns({col}) % 86400000000000)"
+            self.con.sql(f"CREATE OR REPLACE TABLE res AS SELECT * REPLACE (format('0D{{:02d}}:{{:02d}}:{{:02d}}.{{:09d}}', "
+                         f"{ns} // 3600000000000, {ns} // 60000000000 % 60, {ns} // 1000000000 % 60, {ns} % 1000000000) AS {col}) FROM res")
 
         bcols = [row[0] for row in self.con.sql("SELECT column_name FROM (DESCRIBE res) WHERE column_type = 'BOOLEAN'").fetchall()]
         for col in bcols:

@@ -10,16 +10,21 @@
 // are both parse errors elsewhere. It is meant to be deleted, not extended:
 // when those parse, the qlite arm should run src/runQueries.q instead.
 //
-// It is memory-backend only and loads PSVs, so its setup rows measure PSV
-// parsing rather than a kdb+ database load and are NOT comparable with the
-// kdb+ arms'. Query rows are, since the data is in memory either way.
+// It is memory-backend only. -format SPLAYED loads the splayed kdb database
+// src/qengine/psvToSplayed.q writes, which is what makes the setup rows
+// comparable with the kdb+ arms': both are then loading a kdb-format database.
+// -format PSV parses the PSV files directly instead and needs no converter run,
+// but its idx 0 row measures PSV parsing and is NOT comparable. Query rows are
+// comparable either way, since the data is in memory by the time they run.
 
 USAGE: "usage: q ", string[.z.f], " [-help] -db DB -paramdir DIR -queryfile FILE -querymeta FILE",
-  " -storage_backend memory [-format PSV] [-engine q-sql] [-sortcols COLS] [-indexon COL]",
-  " [-date DATE] [-queryOutputDir DIR] [-result FILE] [-tableStatsDir DIR] [-tags TAGS]",
-  " [-instrument (single|multi|all)] [-idx FILTER] [-debug]\n\n",
-  "Loads one day of NYSE TAQ PSV files into memory and runs the benchmark queries\n",
-  "against them, writing the contract's per-query result PSV.\n\n",
+  " -storage_backend memory [-format (PSV|SPLAYED)] [-engine q-sql] [-sortcols COLS] [-indexon COL]",
+  " [-date DATE] [-queryOutputDir DIR] [-result FILE] [-statsDir DIR] [-tags TAGS]",
+  " [-instrument (single|multi|all)] [-idx FILTER] [-store duckdb] [-debug]\n\n",
+  "Loads one day of NYSE TAQ data into memory and runs the benchmark queries\n",
+  "against it, writing the contract's per-query result PSV. -db is a splayed kdb\n",
+  "database from src/qengine/psvToSplayed.q, or a directory of PSV files with\n",
+  "-format PSV.\n\n",
   "See docs/engine-contract.md for the CLI, the result columns and the protocol."
 
 // .Q.opt is documented to give each option a list of strings; take the first
@@ -34,7 +39,7 @@ if[count missing: MANDATORY except ko;
   -2 "Run with -help for usage.";
   exit 1]
 
-ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`tableStatsDir`tags`instrument`idx`debug
+ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`statsDir`tags`instrument`idx`store`s`debug
 if[count unknown: ko except ALLOWED;
   -2 "Unknown parameter(s): ", ", " sv string unknown;
   -2 "Run with -help for usage.";
@@ -55,13 +60,18 @@ if[not ENGINE ~ `$"q-sql"; -2 "Unsupported engine ", string ENGINE; exit 2]
 
 \l src/pivot.q
 \l src/memusage.q
-\l src/loadPSVDataset.q
+\l src/loadSplayedDataset.q
 \l src/getQueryParameters.q
 
 DB: opt `db
 DATE: "D"$opt `date
 PARAMDIR: hsym `$opt `paramdir
-FORMAT: $[count f: upper opt `format; `$f; `PSV]
+FORMAT: $[count f: upper opt `format; `$f; `SPLAYED]
+if[not FORMAT in `PSV`SPLAYED;
+  -2 "Unsupported format ", string[FORMAT], " (expected PSV or SPLAYED)"; exit 2]
+// The PSV loader reads the taq submodule's schemas, which use KDB-X dictionary literals.
+if[FORMAT ~ `PSV; system "l src/loadPSVDataset.q"]
+LOADDATASET: $[FORMAT ~ `SPLAYED; loadSplayedDataset; loadPSVDataset]
 INDEXON: trim lower opt `$"indexon"
 SORTCOLS: (`$"," vs opt `sortcols) except `
 QUERYOUTPUT: $[count d: opt `queryOutputDir; hsym `$d; `]
@@ -106,6 +116,11 @@ if[`idx in ko; IdxFilter: parseIdx opt `idx]
 // .Q.gc is not universal; a build without it just does not collect.
 GC: {[] 0}
 if[`gc in key `.Q; GC: .Q.gc]
+// Without .Q.ts a run is still timed by .z.p; only its memory goes unmeasured.
+TS: {[f; a] (0N 0N; f . a)}
+if[`ts in key `.Q; TS: .Q.ts]
+CD: {[t] csv 0: t}
+if[`cd in key `.h; CD: .h.cd]
 
 IOStatError: `kB_read`kB_wrtn`kB_sum!3#0Nj
 getKBReadLinux: {[device]
@@ -114,7 +129,7 @@ getKBReadLinux: {[device]
   s: @[{[r] iostats: @[; `disk] first @[; `statistics] first first first value flip value .j.k raze r;
     if[not count iostats; '"empty"];
     m: exec `long$sum kB_read, `long$sum kB_wrtn from iostats;
-    m, ([kB_sum: sum m])}; r; {x}];
+    m, (enlist `kB_sum)!enlist sum m}; r; {x}];
   $[99h ~ type s; s; IOStatError]}
 getKBRead: getKBReadLinux
 if["false" ~ lower getenv `IOSTAT; getKBRead: {[device] IOStatError}]
@@ -135,19 +150,26 @@ resSize: {[res] r: @[.mem.objsize; res; {x}]; $[-7h ~ type r; string r div 1024;
 
 SEP: "|"
 COMPPARAM: "0_0_0"   / data is not compressed in memory
+
+// A cell the runner did not measure is the empty one -- that is what
+// src/runQueries.q emits and what convertToJSFormat.py parses. kdb+'s `string`
+// renders a null long that way already; peachq renders it "0Nl", which reaches
+// the dashboard converter as an unparsable timing.
+nullStr: {[v] $[null v; ""; string v]}
+
 writeRes: {[idx; query; status; ts; memusage; io; ressize]
   if[null resultH; :()];
   fixed: (STORAGE_BACKEND; COMPPARAM; string 1 | system "s"; "qlite"; string ENGINE;
     string lower FORMAT; INDEXON; idx; query; status);
-  times: string `long$ 3 # ts, 3 # 0Nn;
-  mem: $[10h ~ type memusage; memusage; string memusage div 1000];
-  ios: string 1 _ deltas 4 # io, 4 # 0Nj;
+  times: nullStr each `long$ 3 # ts, 3 # 0Nn;
+  mem: $[10h ~ type memusage; memusage; nullStr memusage div 1000];
+  ios: nullStr each 1 _ deltas 4 # io, 4 # 0Nj;
   resultH (SEP sv fixed, times, (enlist mem), ios, enlist ressize), "\n"}
 
 flushCaches: {[] -1 raze system getenv[`FLUSH], " ", DB;}
 
-setupRow: {[idx; desc; status; ts; memusage; io; ressize]
-  writeRes[string idx; desc; status; ts; memusage; io; ressize]}
+setupRow: {[idx; what; status; ts; memusage; io; ressize]
+  writeRes[string idx; what; status; ts; memusage; io; ressize]}
 
 statusOf: {[timing] $[count e: timing 3; e; "success"]}
 
@@ -155,7 +177,7 @@ statusOf: {[timing] $[count e: timing 3; e; "success"]}
 timed: {[f; args]
   io: (), getKBRead[Device] `kB_read;
   s: .z.p;
-  r: .[.Q.ts; (f; args); {(0N 0N; x)}];
+  r: .[TS; (f; args); {(0N 0N; x)}];
   e: .z.p;
   io,: getKBRead[Device] `kB_read;
   (e - s; last first r; io; $[10h ~ type last r; last r; ""])}
@@ -177,8 +199,8 @@ getAttrib: {[indexon; sortcols]
 loadIntoMemory: {[db; date; sortCols; attrib]
   flushCaches[];
   GC[];
-  -1 "loading PSV dataset at ", db;
-  r: timed[loadPSVDataset; (db; date)];
+  -1 "loading ", lower string[FORMAT], " dataset at ", db;
+  r: timed[LOADDATASET; (db; date)];
   setupRow[0; "load a partition into memory"; statusOf r; r 0; r 1; r 2; NYI];
   / no transformation, but we want to record the time and memory usage of the transformation step
   setupRow[-1; "transform"; "success"; 0D; 0j; 0j; NYI];
@@ -192,8 +214,8 @@ loadIntoMemory: {[db; date; sortCols; attrib]
     r: timed[addAttr; (c; attrib c)];
     setupRow[-3; "index"; statusOf r; r 0; r 1; r 2; NYI]}[attrib] each key attrib;}
 
-captureTableStats: {[tableStatsDir]
-  tableStatsFile: .Q.dd[tableStatsDir; `$"stats.yaml"];
+captureTableStats: {[statsDir]
+  tableStatsFile: .Q.dd[statsDir; `$"stats.yaml"];
   if[not ()~key tableStatsFile; hdel tableStatsFile];
   h: hopen tableStatsFile;
   h "proprietary: 'no'\n";
@@ -222,16 +244,21 @@ persistOutput: {[dir; res; idx]
   m: 0! meta res;
   cs: flip res;
   / .Q.f does not accept every float type everywhere; where it does not, leave
-  / the column for .h.cd to format.
-  fmt6: {[c] $[10h ~ type r: @[{[c] .Q.f[6] each c}; c; {x}]; c; r]};
+  / the column for .h.cd to format. Reals widen first: l formats a real imprecisely.
+  fmt6: {[c] $[10h ~ type r: @[{[c] .Q.f[6] each `float$c}; c; {x}]; c; r]};
   cs: {[fmt6; cs; c] cs[c]: fmt6 cs c; cs}[fmt6]/[cs; m[`c] where m[`t] in "ef"];
-  .Q.dd[dir; `$"queryoutput_", idx, ".csv"] 0: .h.cd origCols xcol flip cs;}
+  .Q.dd[dir; `$"queryoutput_", idx, ".csv"] 0: CD origCols xcol flip cs;}
 
 // Persisting the output is telemetry: a failure is worth a warning, not the
 // loss of every query after it.
 tryPersistOutput: {[dir; res; idx]
   e: @[{[a] persistOutput . a; ""}; (dir; res; idx); {x}];
   if[count e; -2 "[", idx, "] could not persist the query output: ", e];}
+
+// A query cannot be interrupted in-process, so a run 1 past max(30s, 5x the median run 1
+// so far) is reported as "timeout" with its one timing, and its runs 2 and 3 are skipped.
+RUN1: `timespan$()
+slowRun1: {[t] t > 0D00:00:30 | 5 * $[count RUN1; med RUN1; 0D]}
 
 // A base filter (e.g. "single") matches its frequency variants too.
 skipReason: {[idx; querytags; instrument]
@@ -264,6 +291,9 @@ runQuery: {[idx; querytags; instrument; query]
   -1 "[", idx, "]   Shape of the result: ", $[.Q.qt res; string[count res], " x ", string count cols res; "not a table"];
   tryPersistOutput[QUERYOUTPUT; res; idx];
   res: ();
+  if[slowRun1 first ts; -1 "[", idx, "]   timeout: run 1 took ", (string first ts), ", runs 2 and 3 skipped";
+    writeRes[idx; query; "timeout"; ts; 0Nj; io; NYI]; :()];
+  RUN1,: first ts;
 
   GC[];
   s: .z.p;
@@ -275,7 +305,7 @@ runQuery: {[idx; querytags; instrument; query]
 
   GC[];
   s: .z.p;
-  r: .[.Q.ts; (value; enlist query); {(0N 0N; x)}];
+  r: .[TS; (value; enlist query); {(0N 0N; x)}];
   ts,: .z.p - s;
   res: last r;
   if[10h ~ type res; writeRes[idx; query; res; ts; 0Nj; io; NYI]; :()];
@@ -289,7 +319,20 @@ Device: first system "./src/resolve_device.sh ", DB
 
 loadIntoMemory[DB; DATE; SORTCOLS; getAttrib[INDEXON; SORTCOLS]]
 
-if[`tableStatsDir in ko; captureTableStats hsym `$opt `tableStatsDir]
+if[`statsDir in ko; captureTableStats hsym `$opt `statsDir]
+
+// -store duckdb: trade and quote move into an in-memory DuckDB through peachq's
+// :pq:duckdb: handle and their names rebind to the linked tables, so the same
+// qSQL text runs with whatever of it DuckDB can answer pushed down.
+STORE: lower opt `store
+if[not STORE in ("";"duckdb"); -2 "Unsupported -store ", STORE, " (expected duckdb)"; exit 2]
+storeInDuckdb: {[tNames]
+  DUCKH:: hopen (`:pq:duckdb:taq; ":memory:");
+  {[n] p: `$":pq:duckdb:taq:", string[n], "/"; p set value n; n set get p} each tNames;}
+if[STORE ~ "duckdb";
+  r: timed[storeInDuckdb; enlist `trade`quote];
+  setupRow[-4; "store trade and quote in duckdb"; statusOf r; r 0; r 1; r 2; NYI];
+  if[count r 3; -2 "could not store the tables in DuckDB: ", r 3; exit 5]]
 
 -1 "Loading parameters from ", 1_string PARAMDIR
 // A parameter this implementation cannot build must stay unset, so the queries

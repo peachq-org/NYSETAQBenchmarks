@@ -13,12 +13,15 @@
 //   -date DATE     partition date, e.g. 2026.04.01 or 20260401
 //   -dst  DSTDIR   directory to write master.csv, trade.csv, and quote.csv into
 //   -batchrows N    maximum rows serialized in one CSV object
+//   -format F      KDB (default): a date-partitioned database; SPLAYED: the one
+//                  src/qengine/psvToSplayed.q writes, so no KDB-X is needed
 //
 
 if[(5.0>.z.K); -2 "5.0 runtime is required"; exit 1];
 
 ko: key o: first each .Q.opt .z.x;
 MANDATORY: `db`date`dst`batchrows;
+FORMAT: $[`format in ko; `$upper o `format; `KDB];
 if[count missing: MANDATORY except ko;
   -2 "Missing mandatory parameter(s): ", ", " sv string missing; exit 1];
 
@@ -30,7 +33,7 @@ system "mkdir -p ", DST;
 // Load the whole HDB so the `sym` enumeration domain is present; without it the
 // splayed sym columns read back as raw integer indices instead of symbol names.
 // This also makes `trade`/`quote` date-partitioned tables with a virtual `date`.
-system "l ", 1_string DB;
+$[FORMAT ~ `SPLAYED; [system "l src/loadSplayedDataset.q"; loadSplayedDataset[o `db; D]]; system "l ", 1_string DB];
 
 // q's default display precision is not round-trip safe for 32-bit floats.
 // CSV serialization honors `P`, so use full precision to keep distinct trade
@@ -45,9 +48,10 @@ TRADECOLS: `time`ex`sym`cond`size`price`stop`corr`seq`tradeId`source`tradeReport
 QUOTECOLS: `time`ex`sym`bid`bsize`ask`asize`cond`seq`nationalBBOIndicator`finraBBOIndicator`finraADFMpidIndicator`corr`source`retailInterestIndicator`shortSaleRestrictionIndicator`LULDBBOIndicator`SIPGeneratedMessageIdentifier`nationalBBOLULDIndicator`participantTimestamp`FINRAADFTimestamp`FINRAADFMarketParticipantQuoteIndicator`securityStatusIndicator;
 TIMESPANCOLS: `time`participantTimestamp`tradeReportingFacilityTRFTimestamp`FINRAADFTimestamp;
 
-loadPartition: {[db; d; tbl; keepCols]
+loadPartition: $[FORMAT ~ `SPLAYED;
+  {[db; d; tbl; keepCols] ?[tbl; (); 0b; keepCols!keepCols]};
   // functional select of the wanted columns from the partition for date d
-  ?[tbl; enlist (=; `date; d); 0b; keepCols!keepCols] }
+  {[db; d; tbl; keepCols] ?[tbl; enlist (=; `date; d); 0b; keepCols!keepCols]}];
 
 // `csv 0:` writes the char/string columns (ex, cond, stop, source, ssr) as
 // plain text fields; Rayforce reads those columns back as SYMBOL. Timespans

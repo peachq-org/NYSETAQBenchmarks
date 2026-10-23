@@ -16,7 +16,7 @@ usage() {
     cat >&2 <<'EOF'
 usage: runRayforce.sh --db-dir DIR --param-dir DIR --datadate YYYYMMDD \
   --cores N --layout grouped|parted --queryfile FILE --querymeta FILE \
-  -result FILE [-queryOutputDir DIR] [-tableStatsDir DIR] \
+  -result FILE [-queryOutputDir DIR] [-statsDir DIR] \
   [--thread-label N] [--idx FILTER]
 EOF
     exit 2
@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
         --idx|-idx)                     IDXFILTER="$2"; shift 2 ;;
         --query-output-dir|-queryOutputDir)
                                           QUERY_OUTPUT_DIR="$2"; shift 2 ;;
-        --table-stats-dir|-tableStatsDir)
+        --table-stats-dir|-tableStatsDir|-statsDir)
                                           TABLE_STATS_DIR="$2"; shift 2 ;;
         -h|--help)                      usage ;;
         *) echo "runRayforce.sh: unknown option $1" >&2; usage ;;
@@ -184,9 +184,14 @@ printf '(do (println (.sys.build)) (exit 0))\n' > "${WORK}/version.rfl"
 EVERSION="$("${RAYFORCE_BIN}" -c 1 "${WORK}/version.rfl" 2>/dev/null | head -n1 | tr -d '\n' | tr '|,' '  ' || true)"
 [[ -n "${EVERSION}" ]] || EVERSION="rayforce"
 
-if [[ -n "${TABLE_STATS_DIR}" && -f "${WORK}/table-stats.csv" ]]; then
-    awk -F',' '
-      BEGIN { print "proprietary: '\''no'\''" }
+if [[ -n "${TABLE_STATS_DIR}" ]]; then
+    SORTCOLS=$([[ "${LAYOUT}" == "parted" ]] && echo "sym,time" || echo "time")
+    awk -F',' -v ver="${EVERSION}" -v sortcols="${SORTCOLS}" '
+      BEGIN {
+        print "proprietary: '\''no'\''"
+        print "engineversion: '\''" ver "'\''"
+        print "sortcols: '\''" sortcols "'\''"
+      }
       NR>1 {
         sub(/\r$/, "", $4)
         print $1 ":"
@@ -195,13 +200,16 @@ if [[ -n "${TABLE_STATS_DIR}" && -f "${WORK}/table-stats.csv" ]]; then
         print "  rowCount: " $3
         print "  columnCount: " $4
       }
-    ' "${WORK}/table-stats.csv" > "${TABLE_STATS_DIR}/stats.yaml"
+    ' "${WORK}/table-stats.csv" > "${TABLE_STATS_DIR}/stats.yaml" 2>/dev/null \
+      || awk -v ver="${EVERSION}" -v sortcols="${SORTCOLS}" 'BEGIN {
+           print "proprietary: '\''no'\''"; print "engineversion: '\''" ver "'\''"
+           print "sortcols: '\''" sortcols "'\''" }' > "${TABLE_STATS_DIR}/stats.yaml"
 fi
 
-# Assemble the canonical 20-column per-engine PSV. Rayforce does not collect
+# Assemble the canonical 18-column per-engine PSV. Rayforce does not collect
 # disk-I/O metrics, so those fields stay blank rather than claiming zero I/O.
 mkdir -p "$(dirname "${RESULT}")"
-awk -v ver="${EVERSION}" -v cores="${THREAD_LABEL}" -v layout="${LAYOUT}" '
+awk -v cores="${THREAD_LABEL}" -v layout="${LAYOUT}" '
   BEGIN { FS="|"; OFS="|" }
   FNR==NR {
     if (FNR>1 && $1!="") {
@@ -212,7 +220,7 @@ awk -v ver="${EVERSION}" -v cores="${THREAD_LABEL}" -v layout="${LAYOUT}" '
   }
   FNR==1 && NR!=FNR {
     print "storagebackend","compparam","threadcount","runner","engine", \
-          "format","sortcols","indexon","engineversion","idx","query", \
+          "format","indexon","idx","query", \
           "status","run1timeNS","run2timeNS","run3timeNS","run3memKB", \
           "run1ioKB","run2ioKB","run3ioKB","ressizeKB"
     next
@@ -227,7 +235,7 @@ awk -v ver="${EVERSION}" -v cores="${THREAD_LABEL}" -v layout="${LAYOUT}" '
     else if (idx==-3)       q=(layout=="parted" ? "add parted index on sym" : "add grouped index on sym")
     else                    q="setup"
     print "memory","0_0_0",cores,"Rayforce","rayforce","rayforce", \
-          (layout=="parted" ? "sym,time" : "time"),"sym",ver,idx,q,c[2], \
+          "sym",idx,q,c[2], \
           c[3],c[4],c[5],c[6],"","","",c[7]
   }
 ' "${QUERYFILE}" "${WORK}/machine.csv" > "${RESULT}"

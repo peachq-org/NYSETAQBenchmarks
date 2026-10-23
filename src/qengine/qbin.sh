@@ -4,6 +4,7 @@
 # pinned release if it is not cached yet.
 #
 #   ./src/qengine/qbin.sh              # the pinned release below
+#   ./src/qengine/qbin.sh duckdb       # the pinned release's DuckDB build (QBIN_DUCKDB overrides)
 #   QBIN=/path/to/q ./src/qengine/qbin.sh   # an explicit override
 #
 # The override never happens implicitly: an unusable QBIN is an error, not a
@@ -14,11 +15,19 @@ set -euo pipefail
 
 # Bump these three together to pin a new release.
 QLITE_ENGINE="peachq"
-QLITE_VERSION="0.74.0"
-QLITE_SHA256="f2b7e9bef845d1c10a02a1058c5a680031627a0a24d1eda2cfdb4fd00e3c21e4"
+QLITE_VERSION="0.89.0"
+QLITE_SHA256="f429f21b24fb12cf28915f8c3c6ba8b06057c3732ee91e2c2e163fe893a95da7"
+QLITE_DUCKDB_SHA256="78115aea9d5d50b1c2fdf999b38ca7263661e174801af12db8b4b3115b1e61d0"
 
 QLITE_URL_BASE="${QLITE_URL_BASE:-https://peachq.org/file}"
 QLITE_TARBALL="${QLITE_ENGINE}-v${QLITE_VERSION}-linux-x86_64.tar.gz"
+QLITE_FLAVOUR=""
+if [[ "${1:-}" == "duckdb" ]]; then
+    QBIN="${QBIN_DUCKDB:-}"
+    QLITE_TARBALL="${QLITE_ENGINE}-v${QLITE_VERSION}-linux-x86_64-glibc-duckdb.tar.gz"
+    QLITE_SHA256="${QLITE_DUCKDB_SHA256}"
+    QLITE_FLAVOUR="-duckdb"
+fi
 QLITE_CACHE_DIR="${QLITE_CACHE_DIR:-./external/qlite}"
 
 if [[ -n "${QBIN:-}" ]]; then
@@ -31,7 +40,7 @@ if [[ -n "${QBIN:-}" ]]; then
     exit 0
 fi
 
-install_dir="${QLITE_CACHE_DIR}/${QLITE_ENGINE}-v${QLITE_VERSION}"
+install_dir="${QLITE_CACHE_DIR}/${QLITE_ENGINE}-v${QLITE_VERSION}${QLITE_FLAVOUR}"
 binary="${install_dir}/q"
 
 if [[ ! -x "${binary}" ]]; then

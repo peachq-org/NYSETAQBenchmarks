@@ -9,7 +9,7 @@ if[count missing: `opt`dd`ts`gc except key `.Q;
 USAGE: "usage: q ", string[.z.f], " [-help] -db DB -paramdir DIR -queryfile FILE -querymeta FILE",
   " -storage_backend (memory|disk) [-format (KDB|TABLEDICT|PARQUET|PARQUET_ROWGROUP)]",
   " [-engine (q-sql|SQL)] [-sortcols COLS] [-indexon COL] [-date DATE]",
-  " [-queryOutputDir DIR] [-result FILE] [-tableStatsDir DIR] [-encr FILE] [-tags TAGS]",
+  " [-queryOutputDir DIR] [-result FILE] [-statsDir DIR] [-encr FILE] [-tags TAGS]",
   " [-instrument (single|multi|all)] [-idx FILTER] [-debug]\n\n",
   "Loads a kdb+/Parquet database (in memory or on disk) and runs the benchmark queries against it,\n",
   "writing per-query timings, memory usage and IO stats to the result file.\n\n",
@@ -27,7 +27,7 @@ USAGE: "usage: q ", string[.z.f], " [-help] -db DB -paramdir DIR -queryfile FILE
   "  -date DATE           Partition date to load (required for the 'memory' backend)\n",
   "  -queryOutputDir DIR     Directory to persist query outputs as CSV\n",
   "  -result FILE         PSV file to append per-query results to\n",
-  "  -tableStatsDir DIR   Directory to save per-table statistics as YAML\n",
+  "  -statsDir DIR        Directory to save the solution stats (proprietary,\n                       engineversion, sortcols, per-table statistics) as YAML\n",
   "  -encr FILE           Encryption key file for an encrypted database\n",
   "  -tags TAGS           Comma-separated query tags to filter on\n",
   "  -instrument VAL      Only run queries with this instrument scope: single, multi or all\n",
@@ -39,7 +39,7 @@ USAGE: "usage: q ", string[.z.f], " [-help] -db DB -paramdir DIR -queryfile FILE
   "  IOSTAT               Set to 'false' to disable IO statistics collection\n",
   "  QMAP                 Set to 'true' to run .Q.MAP[] after loading the database"
 
-ko: key o: first each .Q.opt .z.x;
+ko: key o: (trim first@) each .Q.opt .z.x;
 if[`help in ko; .log.info USAGE; exit 0]
 
 MANDATORY: `db`paramdir`queryfile`querymeta`storage_backend;
@@ -48,7 +48,7 @@ if[count missing: MANDATORY except ko;
   -2 "Run with -help for usage.";
   exit 1]
 
-ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`tableStatsDir`encr`tags`instrument`idx`debug;
+ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`statsDir`encr`tags`instrument`idx`debug;
 if[count unknown: ko except ALLOWED;
   -2 "Unknown parameter(s): ", ", " sv string unknown;
   -2 "Run with -help for usage.";
@@ -76,6 +76,7 @@ if[not lower[getenv `EACHPEACH] in (""; "each"; "peach");
 system "l src/pivot.q"    / This will be available as a KX module
 system "l src/memusage.q" / This is also available as a DI module
 system "l src/util.q"
+system "l src/loadKDBDBIntoMemory.q"
 
 DB: o `db
 DATE: "D"$o `date
@@ -85,10 +86,10 @@ if[not count key hsym `$DB, "/", string DATE;
 PARAMDIR: hsym `$o`paramdir
 
 
-INDEXON: trim lower o `$"indexon"
+INDEXON: lower o `$"indexon"
 FORMAT: `$upper o `format
 ENGINE: (`$"q-sql")^`$upper o `engine
-SORTCOLS: `$"," vs o `sortcols
+SORTCOLS: `$$[count o `sortcols; "," vs o `sortcols; ()]
 QUERYOUTPUT: hsym `$o `queryOutputDir
 
 checkInputFileExistence: {[f]
@@ -189,13 +190,28 @@ loadParquetDB: {[db: `C; rowgroup: `b; device: `C; writerFN]
 
 /////////////////// functions for in-memory tests ///////////////////
 
-captureTableStats: {[tableStatsDir:`s]
-  tableStatsFile: .Q.dd[tableStatsDir; `$"stats.yaml"];
-  if[not ()~key tableStatsFile; hdel tableStatsFile];
+statsFileOf: {[statsDir:`s] .Q.dd[statsDir; `$"stats.yaml"]}
 
-  h: hopen tableStatsFile;
+/ stats.yaml holding the solution-level fields only, replacing whatever was there.
+/ Written before the data is loaded, so the file exists even when the process never
+/ gets past loading (an in-memory load of a large data size can end with the OOM
+/ killer): common.sh's add_solution_name can then always label the run with its
+/ solution name, and the dashboard conversion can report the run as terminated.
+/ getTableStats appends the table statistics to it once the data is in memory.
+getEngineStats: {[statsDir:`s]
+  statsFile: statsFileOf statsDir;
+  if[not ()~key statsFile; hdel statsFile];
+  h: hopen statsFile;
   h "proprietary: 'yes'\n";
   h "engineversion: '", string[.z.k], "'\n";
+  h "sortcols: '", ("," sv string SORTCOLS), "'\n";
+  hclose h
+  }
+
+/ The per-table sections, appended to the stats.yaml getEngineStats started
+/ (hopen on an existing file appends to it).
+getTableStats: {[statsDir:`s]
+  h: hopen statsFileOf statsDir;
   h {[h; tName]
     rowCount: $[99h ~ type value tName; sum count each value tName; count value tName];
     columns: cols $[99h ~ type value tName; first;] value tName;
@@ -214,32 +230,8 @@ captureTableStats: {[tableStatsDir:`s]
       h "    type: ", (string ty), "\n";
       h "    attr: ", (string meta[t][c;`a]), "\n";
       }[h; tName] each columns}' `master`trade`quote;
-  h "sortcols: '", ("," sv string SORTCOLS), "'\n";
   hclose h
   }
-
-loadRootObjectsIntoMemory: {[db: `s]
-  .log.info "loading root objects into memory ";
-  c: key db;
-  files: c where ({x ~ key x} .Q.dd[db]@) each c;
-  db {[db; f]
-    .log.info "loading object ", string[f], " into memory";
-    f set (get[.Q.dd[db;f]] ::)}' files;
-  }
-
-loadKDBDBIntoMemory: ('[{[params]
-  (db: `s; d: `d): 2#params;
-  tbls: `master`trade`quote;
-  if[3=count params; tbls: params 2];
-
-  loadRootObjectsIntoMemory[db];
-  dpath: .Q.dd[db; d];
-  .log.info "loading tables in partition ", string[d], " into memory";
-  .Q.dd[dpath] {[getPath; tName]
-      .log.info "loading table ", string[tName], " into memory";
-      tName set select from get[getPath tName] where i>-1;
-      .log.info "Shape of ", string[tName], ": ", string[count value tName], " x ", string count cols tName; }' tbls;
-  }; enlist])
 
 sortTradeQuoteTables: {[sortCols]
   sortCols {[sortCols; tName]
@@ -274,7 +266,7 @@ loadKDBPartitionIntoMemory: {[db: `s; device: `C; writerFN; d: `d; sortCols:`S; 
   io,: getKBRead[device]`kB_read;
   writerFN[0; "load a partition into memory"; ("success"; ts, 2#0Nn; memusage; io, 2#0Nj; 0Nj)];
   / no transformation, but we want to record the time and memory usage of the transformation step
-  writerFN[-1; "transform"; ("success"; 0D, 2#0Nn; 0j; 0j, 2#0Nj; 0Nj)];
+  writerFN[-1; "transform"; ("success"; 0D, 2#0Nn; 0j; 0j, 0j, 2#0Nj; 0Nj)];
 
   if[count sortCols;
     io: (), getKBRead[device]`kB_read;
@@ -342,8 +334,8 @@ runQuery: {[db: `C; device: `C; writerFN; filters; querytuple]
   if[not count query;
     writerFN[idx; query; ("emptyquery"; 3#0Nn; 0Nj; 4#0Nj; 0Nj)];
     :()];
-  if["#" ~ first idx;
-    writerFN[1_idx; query; ("skip"; 3#0Nn; 0Nj; 4#0Nj; 0Nj)];
+  if["#" ~ first query;
+    writerFN[idx; 1_query; ("skip"; 3#0Nn; 0Nj; 4#0Nj; 0Nj)];
     :()];
   if[count[idxFilter] and not ("J"$idx) in idxFilter;
     writerFN[idx; query; ("idxfiltered"; 3#0Nn; 0Nj; 4#0Nj; 0Nj)];
@@ -428,6 +420,11 @@ startTime: .z.p
 Device: first system "./src/resolve_device.sh ", DB
 .log.info "Monitoring device ", Device
 
+/ Written before the load so the file exists even if the process dies loading;
+/ getTableStats below appends the table statistics to it. See getEngineStats.
+CAPTURESTATS: (not FORMAT ~ `TABLEDICT) and `statsDir in ko
+if[CAPTURESTATS; getEngineStats hsym `$o `statsDir]
+
 $[STORAGE_BACKEND ~ "memory"; [
   compparm: "0_0_0"; / data is not compressed in memory
   WriterFN:: writeRes[resultH; (STORAGE_BACKEND; compparm; ENGINE; FORMAT; INDEXON)];
@@ -451,8 +448,7 @@ $[STORAGE_BACKEND ~ "memory"; [
       loadKDBDB[DB; Device; WriterFN]
     ]; [.log.error "Unknown format ", FORMAT; exit 1]]]];
 
-if[not FORMAT ~ `TABLEDICT;
-  if[`tableStatsDir in ko; captureTableStats hsym `$o `tableStatsDir]];
+if[CAPTURESTATS; getTableStats hsym `$o `statsDir]
 
 .log.info "Loading parameters from ", 1_string PARAMDIR
 system "l src/getQueryParameters.q"

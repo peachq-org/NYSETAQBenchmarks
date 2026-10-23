@@ -16,13 +16,29 @@ LETTERS=$(get_letters $SIZE)
 if [[ ${DATAFORMAT} == "parquet" ]]; then
   echo "Generating parquet dataset..."
   uv run ./pysrc/taqToParquet/main.py -date "$DATE" -src "$CSVDIR" -dst "$DST" -letters "$LETTERS"
+elif [[ ${DATAFORMAT} == "splayed" ]]; then
+  # A kdb-format database for q implementations that cannot run src/taqToKDB.q,
+  # built by the same binary the qlite arm benchmarks. The letter range comes
+  # from the BBO filenames in $CSVDIR rather than from $LETTERS.
+  echo "Generating splayed kdb dataset..."
+  QLITE_BIN=$(bash "${script_dir}/src/qengine/qbin.sh")
+  "${QLITE_BIN}" ./src/qengine/psvToSplayed.q -src "$CSVDIR" -dst "$DST" -date "$DATE" -q
 elif [[ ${DATAFORMAT} == "rayforce" ]]; then
   # Rayforce ingests via CSV, so it bridges through the generated on-disk DB:
   # export the master/trade/quote columns to comma-CSV, then build the native
   # splayed DB with .csv.splayed. Each date is stored separately below $DST so
   # benchmark runs cannot accidentally read data generated for another date.
   # Expects the on-disk DB to already exist at the sibling 'kdb' directory.
+  # Without a kdb database the export reads the splayed one the qlite arm uses,
+  # through the qlite binary, so a host with no KDB-X can still build it.
   SRCDB="$(dirname "$DST")/kdb"
+  EXPORTQ=(env QPATH="${QPATH:-}:${script_dir}/external:$(dirname "$(command -v q 2>/dev/null || echo .)")/../mod" q)
+  EXPORTFMT=kdb
+  if [[ ! -d "${SRCDB}" && -d "$(dirname "$DST")/splayed" ]]; then
+    SRCDB="$(dirname "$DST")/splayed"
+    EXPORTQ=("$(bash "${script_dir}/src/qengine/qbin.sh")")
+    EXPORTFMT=splayed
+  fi
   RAYFORCE_BIN="${RAYFORCE_BIN:-${script_dir}/../rayforce/rayforce}"
   [[ -d "${SRCDB}" ]] || { echo "rayforce gen needs the source DB first: ${SRCDB} missing" >&2; exit 1; }
   [[ -x "${RAYFORCE_BIN}" ]] || { echo "rayforce binary not found: ${RAYFORCE_BIN}" >&2; exit 1; }
@@ -30,9 +46,8 @@ elif [[ ${DATAFORMAT} == "rayforce" ]]; then
   trap 'rm -rf "${RAYCSV}"' EXIT
   echo "Exporting master/trade/quote to CSV for Rayforce..."
   RAY_EXPORT_BATCH_ROWS="${RAY_EXPORT_BATCH_ROWS:-6000000}"
-  QPATH="${QPATH:-}:${script_dir}/external:$(dirname "$(command -v q)")/../mod" \
-    q ./src/rayforce/exportRayCSV.q -db "${SRCDB}" -date "$DATE" -dst "${RAYCSV}" \
-      -batchrows "${RAY_EXPORT_BATCH_ROWS}" -q
+  "${EXPORTQ[@]}" ./src/rayforce/exportRayCSV.q -db "${SRCDB}" -date "$DATE" -dst "${RAYCSV}" \
+      -batchrows "${RAY_EXPORT_BATCH_ROWS}" -format "${EXPORTFMT}" -q
   echo "Building Rayforce splayed DB..."
   RAYFORCE_BUILD_CORES="${RAYFORCE_BUILD_CORES:-1}"
   RAY_DATE_DIR="${DST}/${DATE}"
