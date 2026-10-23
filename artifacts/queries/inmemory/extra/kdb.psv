@@ -1,0 +1,10 @@
+idx|tags|query|parameter
+101||select open: first price, high: max price, low: min price, close: last price, volume: sum `float$size by sym, minute: time.minute from trade|
+102||select vwap: (`float$size) wavg `float$price, volume: sum `float$size, trades: count i, high: max price, low: min price by sym from trade|
+103||update effSpread: 2 * abs (`float$price) - 0.5 * (`float$bid) + `float$ask from aj[`sym`time; select sym, time, price, size from trade; select sym, time, bid, ask from quote]|
+104||select sym, time, price, maxBid: bid, minAsk: ask from wj1[-0D00:00:01 0D00:00:01 +\: trade`time; `sym`time; select sym, time, price from trade; (select sym, time, bid, ask from quote; (max; `bid); (min; `ask))]|
+105||select volume: sum `float$size, trades: count i by securityType from trade lj `sym xkey select sym, securityType from master|
+106||select trades: count i by ex from trade where size < 100, price within 10 100|
+107||select sym, sizeRank, time, size, price from (update sizeRank: 1 + iasc idesc size by sym from trade) where sizeRank <= 10|
+108||select symCount: count distinct sym by ex from quote|
+109||select nret: count ret, rvol: 10000 * dev ret by sym from (select from (update ret: log close % prev close by sym from `sym`minute xasc 0! select close: last price by sym, minute: time.minute from trade) where not null ret)|

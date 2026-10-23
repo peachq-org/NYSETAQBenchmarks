@@ -13,3 +13,19 @@ verified|solution|implementation|engineversion|queryfile|queryhash|paramhash|dat
 2026-10-23|l|l|1 2026.10.19|artifacts/queries/inmemory/kdb.psv|299bce4552d0|ac4b0b7921be|20260701|tiny|84|0|0|0|84|e6e50f1
 2026-10-23|peachq|peachq|5 2026.10.22|artifacts/queries/inmemory/kdb.psv|299bce4552d0|ac4b0b7921be|20260701|tiny|82|2|0|0|84|e6e50f1
 2026-10-23|peachq (via DuckDB)|peachq|5 2026.10.22|artifacts/queries/inmemory/kdb.psv|299bce4552d0|ac4b0b7921be|20260701|tiny|82|2|0|0|84|e6e50f1
+2026-10-23|DuckDB (Index)|duckdb|2.0.0|artifacts/queries/inmemory/extra/duckdb.psv|7874603557ef|23d902ff89d9|20260401|test|9|0|0|0|9|697156d
+2026-10-23|Pandas|pandas|3.1.0|artifacts/queries/inmemory/extra/pandas.psv|0e5911176823|23d902ff89d9|20260401|test|9|0|0|0|9|697156d
+2026-10-23|Polars (Eager)|polars|2.0.0|artifacts/queries/inmemory/extra/polars.psv|3c0ad146b843|23d902ff89d9|20260401|test|9|0|0|0|9|697156d
+2026-10-23|Polars (Lazy)|polars|2.0.0|artifacts/queries/inmemory/extra/polars_lazy.psv|3c0ad146b843|23d902ff89d9|20260401|test|9|0|0|0|9|697156d
+2026-10-23|chDB (Memory)|chdb|4.4.0|artifacts/queries/inmemory/extra/chdb.psv|3429819afc58|23d902ff89d9|20260401|test|9|0|0|0|9|697156d
+2026-10-23|l|l|1 2026.10.19|artifacts/queries/inmemory/extra/kdb.psv|024c74dd49dd|23d902ff89d9|20260401|test|8|1|0|0|9|697156d
+2026-10-23|peachq|peachq|5 2026.10.22|artifacts/queries/inmemory/extra/kdb.psv|024c74dd49dd|23d902ff89d9|20260401|test|9|0|0|0|9|697156d
+2026-10-23|peachq (via DuckDB)|peachq|5 2026.10.22|artifacts/queries/inmemory/extra/kdb.psv|024c74dd49dd|23d902ff89d9|20260401|test|7|2|0|0|9|697156d
+2026-10-23|DuckDB (Index)|duckdb|2.0.0|artifacts/queries/inmemory/extra/duckdb.psv|7874603557ef|ac4b0b7921be|20260701|tiny|9|0|0|0|9|697156d
+2026-10-23|Pandas|pandas|3.1.0|artifacts/queries/inmemory/extra/pandas.psv|0e5911176823|ac4b0b7921be|20260701|tiny|9|0|0|0|9|697156d
+2026-10-23|Polars (Eager)|polars|2.0.0|artifacts/queries/inmemory/extra/polars.psv|3c0ad146b843|ac4b0b7921be|20260701|tiny|9|0|0|0|9|697156d
+2026-10-23|Polars (Lazy)|polars|2.0.0|artifacts/queries/inmemory/extra/polars_lazy.psv|3c0ad146b843|ac4b0b7921be|20260701|tiny|9|0|0|0|9|697156d
+2026-10-23|chDB (Memory)|chdb|4.4.0|artifacts/queries/inmemory/extra/chdb.psv|3429819afc58|ac4b0b7921be|20260701|tiny|9|0|0|0|9|697156d
+2026-10-23|l|l|1 2026.10.19|artifacts/queries/inmemory/extra/kdb.psv|024c74dd49dd|ac4b0b7921be|20260701|tiny|8|1|0|0|9|697156d
+2026-10-23|peachq|peachq|5 2026.10.22|artifacts/queries/inmemory/extra/kdb.psv|024c74dd49dd|ac4b0b7921be|20260701|tiny|9|0|0|0|9|697156d
+2026-10-23|peachq (via DuckDB)|peachq|5 2026.10.22|artifacts/queries/inmemory/extra/kdb.psv|024c74dd49dd|ac4b0b7921be|20260701|tiny|7|2|0|0|9|697156d

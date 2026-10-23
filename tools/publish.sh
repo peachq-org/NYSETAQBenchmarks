@@ -10,10 +10,11 @@
 #
 # A verified publish also appends the run's MPH to artifacts/publish/history.psv: commit it.
 #
-# Usage: tools/publish.sh --results DIR --size SIZE (--verdicts FILE | --unverified) [--local DIR] [--stage DIR] [--page-solutions LIST] [--history FILE]
+# Usage: tools/publish.sh --results DIR --size SIZE (--verdicts FILE | --unverified) [--local DIR] [--stage DIR] [--page-solutions LIST] [--history FILE] [--extra-results DIR --extra-verdicts FILE]
 #   --local DIR   copy into DIR (a local preview's .../data/benchmark) instead of the server; it
 #                 writes at once, since nothing leaves the machine
-#   --page-solutions LIST, --history FILE   passed to publishData.py
+#   --page-solutions LIST, --history FILE, --extra-results DIR, --extra-verdicts FILE   passed to publishData.py
+#                 (the --extra-* pair adds the common workloads, verify.sh --queryset extra)
 #   GO=1          upload to $PEACHQ_HOST:$PEACHQ_ROOT
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -33,7 +34,7 @@ while [ $# -gt 0 ]; do
     --unverified) UNVERIFIED=1; shift;;
     --local) LOCAL="${2:?}"; shift 2;;
     --stage) STAGE="${2:?}"; shift 2;;
-    --page-solutions|--history) EXTRA+=("$1" "${2:?}"); shift 2;;
+    --page-solutions|--history|--extra-results|--extra-verdicts) EXTRA+=("$1" "${2:?}"); shift 2;;
     *) usage;;
   esac
 done

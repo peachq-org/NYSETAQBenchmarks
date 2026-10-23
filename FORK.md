@@ -51,6 +51,7 @@ No vendor is privileged here, including peachq.
 | 28 | `polars.psv` / `polars_lazy.psv` idx 47–48 `rolling_mean(window_size=20, min_samples=1)` | q `mavg` averages the terms so far over the first items (qdocs `ref/avg.md:95`); Polars answered null for the first 19 rows. idx 49–50 already pass `min_samples=1` | Yes, standalone |
 | 29 | `chdb.psv` idx 20–23, 49–50 divide with `divideOrNull` | 31 quotes of the infrequent instrument have `bsize + asize = 0`; ClickHouse's `0/0` is NaN and NaN poisons `avg`, where q's null is ignored (qdocs `ref/avg.md:24`). The same fix divergence 13 makes for DuckDB with a setting; chDB has no such setting | Yes, standalone |
 | 30 | `duckdb.psv` idx 51–55 and `chdb.psv` idx 51–53 order their running windows `BY rowid`, not `BY time` | Rows tied on `time` came in an order the engine chose: DuckDB idx 54 was off on 4 rows tied on (sym, time) in every one of 3 runs, chDB idx 52 on row 11303 (21,283 trades, 19,118 distinct times). `rowid` is the table's stable time order, the order q's `sums` runs in (`docs/verification.md` section 3). idx 55 on chDB and 49–50 on both already used it | Yes, standalone |
+| 31 | A second, separate query set: nine common workloads, idx 101–109, in `artifacts/queries/inmemory/extra/` ([docs/common-workloads.md](docs/common-workloads.md)), run with `queryEngines.sh --queryset extra`, verified with `verify.sh --queryset extra`, published as their own `extra*` fields and MPH | KX's 84 lean on a symbol or time filter first (62 filter to symbols); none runs a window join, a reference-table join, returns or full-day bars for every symbol, and every as-of join is restricted. KX's 84 are not edited | No — the fork's own queries; the driver and verifier option could be |
 
 ### Verification rules
 
@@ -61,6 +62,10 @@ No vendor is privileged here, including peachq.
 - **Relative tolerance with a floor.** Floats agree within 1e-6 relative (floor 1e-9) plus the rounding their
   printing implies; a looser float32 allowance applies only where `artifacts/verification/float32.psv` lists a
   measurement for it.
+- **Fork-added queries are a separate, labelled set.** They live in their own files with idx 101+, run as their own
+  invocation and are scored as their own MPH; never inside KX's 84 or its MPH.
+- **A fork-added query ships only with every translation verified.** Each one has a q, DuckDB, chDB, Polars (Eager
+  and Lazy) and Pandas translation, all agreeing under the consensus rule, before it is published.
 - **Verification is separate and recorded.** It never runs inside a timed run, and every verified (solution, engine
   version, query file, parameters, date, size) is a row in `artifacts/verification/ledger.psv`; a published number
   without one is unverified.

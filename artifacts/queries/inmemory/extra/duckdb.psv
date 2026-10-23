@@ -1,0 +1,10 @@
+idx|tags|query|parameter
+101||SELECT sym, date_trunc('minute', time)::TIME AS minute, arg_min(price, rowid) AS open, max(price) AS high, min(price) AS low, arg_max(price, rowid) AS close, sum(size::DOUBLE) AS volume FROM trade GROUP BY sym, minute|
+102||SELECT sym, sum(price::DOUBLE * size::DOUBLE) / sum(size::DOUBLE) AS vwap, sum(size::DOUBLE) AS volume, count(*) AS trades, max(price) AS high, min(price) AS low FROM trade GROUP BY sym|
+103||SELECT t.sym, t.time, t.price, t.size, q.bid, q.ask, 2 * abs(t.price::DOUBLE - (q.bid::DOUBLE + q.ask::DOUBLE) / 2) AS effSpread FROM (SELECT sym, time, price, size, rowid FROM trade) t ASOF LEFT JOIN (SELECT sym, time, bid, ask FROM quote QUALIFY row_number() OVER (PARTITION BY sym, time ORDER BY rowid DESC) = 1) q USING (sym, time) ORDER BY t.rowid|
+104||SELECT t.sym, t.time, t.price, max(q.bid) AS maxBid, min(q.ask) AS minAsk FROM (SELECT sym, time, price, rowid AS rid, enum_code(sym::sym_enum) * 100000000000000 + epoch_ns(time) % 86400000000000 AS k FROM trade) t LEFT JOIN (SELECT bid, ask, enum_code(sym::sym_enum) * 100000000000000 + epoch_ns(time) % 86400000000000 AS k FROM quote) q ON q.k BETWEEN t.k - 1000000000 AND t.k + 1000000000 GROUP BY t.rid, t.sym, t.time, t.price ORDER BY t.rid|
+105||SELECT m.securityType, sum(t.size::DOUBLE) AS volume, count(*) AS trades FROM trade t LEFT JOIN master m ON t.sym = m.sym GROUP BY m.securityType|
+106||SELECT ex, count(*) AS trades FROM trade WHERE size < 100 AND price BETWEEN 10 AND 100 GROUP BY ex|
+107||SELECT sym, sizeRank, time, size, price FROM (SELECT sym, time, size, price, row_number() OVER (PARTITION BY sym ORDER BY size DESC, rowid) AS sizeRank FROM trade) WHERE sizeRank <= 10|
+108||SELECT ex, count(DISTINCT sym) AS symCount FROM quote GROUP BY ex|
+109||SELECT sym, count(ret) AS nret, 10000 * stddev_pop(ret) AS rvol FROM (SELECT sym, ln(close::DOUBLE / lag(close::DOUBLE) OVER (PARTITION BY sym ORDER BY minute)) AS ret FROM (SELECT sym, date_trunc('minute', time) AS minute, arg_max(price, rowid) AS close FROM trade GROUP BY sym, minute)) WHERE ret IS NOT NULL GROUP BY sym|

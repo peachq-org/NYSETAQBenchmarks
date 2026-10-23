@@ -225,6 +225,7 @@ Optional:
 | `-e`, `--engines` | (queryEngines only) comma-separated subset of `kdb,kdbxsql,duckdb,chdb,polars,pykx,pandas` | all |
 | `-s`, `--solutions` | (queryEngines only) comma-separated subset of the named variants within those engines, or `"ALL"` for every variant. Polars contributes `Polars (Eager)` and `Polars (Lazy)`; picking the `polars` engine alone runs neither unless one of those names is selected | `"KDB-X,DuckDB (Index),Polars (Lazy),Pandas"` |
 | `-i`, `--idx` | run a subset of queries: `42`, `32,42,50`, or range `40-44` | all |
+| `--queryset` | `kx` (KX's 84) or `extra` (the fork's common workloads, idx 101+; `docs/common-workloads.md`) | `kx` |
 | `-q`, `--query-output-dir` | persist each solution's query outputs as `queryoutput_<idx>.csv` (per-solution subdir, e.g. `Polars_Eager_`) for cross-engine correctness checks | not persisted |
 | `-r`, `--result-dir` | directory for the merged `results.psv`, plus per-solution stats (`<solution>/stats.yaml` + `os.txt`) and `environment.yaml` | `./results/inmemory` |
 | `-h`, `--help` | usage | — |
@@ -242,7 +243,8 @@ Tips for narrowing a run while iterating:
   each table gets its own ENUM built from only its distinct symbols.
 - To verify engines return equivalent results, pass `-q/--query-output-dir` to
   persist per-engine outputs, then check every solution against the consensus with
-  `./benchmarks/inmemory/verify.sh -q <outputdir> -r <resultdir> -p <paramdir> -d <date>`.
+  `./benchmarks/inmemory/verify.sh -q <outputdir> -r <resultdir> -p <paramdir> -d <date>`
+  (add `--queryset extra` for the common workloads).
   See the README's *Verifying Query Output Correctness* section.
 
 ## Reading the results
