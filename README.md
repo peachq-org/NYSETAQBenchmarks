@@ -494,6 +494,48 @@ You may then need to adjust the small configuration block at the top of
   `../results/inmemory/<size>/data.generated.js`), with `default_size` set to the
   largest size benchmarked on more than one machine.
 
+#### Publishing to peachq.org
+
+[tools/publish.sh](./tools/publish.sh) publishes a results tree to
+[peachq.org/benchmark](https://peachq.org/benchmark). It stages two things with
+[pysrc/publishData.py](./pysrc/publishData.py) and copies them to the website's `/data/benchmark/`:
+
+* `data.js`, the summary the native page reads (schema below);
+* `full/`, the drill-down: this dashboard, built by
+  [pysrc/buildSite.py](./pysrc/buildSite.py) in the peachq.org theme from the same filtered runs.
+
+```bash
+tools/publish.sh --results DIR --size tiny --verdicts verdicts.tsv                  # dry run
+GO=1 tools/publish.sh --results DIR --size tiny --verdicts verdicts.tsv             # upload
+tools/publish.sh --results DIR --size tiny --unverified --local /path/to/public_html/data/benchmark  # local preview
+```
+
+`DIR` holds run directories as `queryEngines.sh -r` writes them (a directory of symlinks to the
+chosen runs works). The most recent run of each (solution, thread count) wins, by test date and
+time. Only correct results are published: the verdicts file is verify.sh's output
+(`solution<TAB>idx<TAB>verdict`), and any query whose verdict is not `ok`, or whose status is not
+`success`, is shown as absent. `GO=1` refuses to run without one; `--unverified` is for dry runs
+and local previews, and stamps the data `verified: false`. Set `PYTHON` to an interpreter with
+`pyyaml`; `PEACHQ_HOST` and `PEACHQ_ROOT` override the server.
+
+The `data.js` schema:
+
+```js
+window.PEACHQ_BENCHMARK = {
+  updated, verified, machine: {cpu, memGB, os}, size, datadate, baseline: "DuckDB (Index)",
+  solutions: [{id, label, engine, version, threads: [1, 4], language, data, note}],
+  queries: [{idx, description, tags}],
+  times: {<solution id>: {<threads>: [warm ms (min of runs 2 and 3) or null, per query]}},
+  setup: {<solution id>: {<threads>: {load, sort, index, store}}},
+  history: []   // stage 2: [{date, solution, version, binarySha256, baselineSolution: "l",
+                //   baselineVersion, threads, size, datadate, ratioGeomean, ratioMedian, answered, failed}]
+}
+```
+
+A solution id is its `results.psv` name. `history` is reserved and empty for now; see
+[actionable-plans/2026-10-23-benchmark-publishing.md](./actionable-plans/2026-10-23-benchmark-publishing.md).
+`python -m unittest discover -s test/publish` checks the pipeline on a hand-made run.
+
 ### 2. In-Memory KDB-X Attribute Benchmark — `benchmarks/inmemory/kdbAttributes.sh`
 
 Data is read into memory from kdb+ format. Convert the TAQ PSV files to this format using `./generateDB.sh`:
