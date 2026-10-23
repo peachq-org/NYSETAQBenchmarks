@@ -58,7 +58,7 @@ def output_file(d: Path, idx: int):
 class Solution:
     """One per-solution output directory, named back to its solution through its run's stats.yaml."""
 
-    def __init__(self, out_dir: Path, result_dirs: list):
+    def __init__(self, out_dir: Path, result_dirs: list, queries: str = solutions.QUERIES):
         self.dir = out_dir
         stats = next((r / out_dir.name / "stats.yaml" for r in result_dirs if (r / out_dir.name / "stats.yaml").exists()),
                      None)
@@ -66,7 +66,7 @@ class Solution:
         self.name = meta.get("solution") or solutions.BY_DIR.get(out_dir.name, out_dir.name)
         self.version = str(meta.get("engineversion", "unknown"))
         self.implementation = solutions.implementation(self.name)
-        self.query_file = solutions.query_file(self.name)
+        self.query_file = solutions.query_file(self.name, queries)
         self.status = {}
         for r in result_dirs:
             if (r / "results.psv").exists():
@@ -104,10 +104,12 @@ def golden_path(root: Path, idx: int) -> Path:
 def run(args) -> int:
     started = time.time()
     wanted = parse_idx(args.idx) if args.idx else None
-    meta = [row for row in read_psv(Path(args.querymeta)) if wanted is None or int(row["idx"]) in wanted]
+    queries = solutions.QUERYSETS[args.queryset]
+    meta = [row for row in read_psv(Path(args.querymeta or queries + "querymeta.psv"))
+            if wanted is None or int(row["idx"]) in wanted]
     result_dirs = [Path(r) for r in args.results]
     # run_solution creates every attempted solution's directory, so an empty one is a solution that answered nothing.
-    panel = [Solution(d, result_dirs) for d in sorted(Path(args.outputs).iterdir()) if d.is_dir()]
+    panel = [Solution(d, result_dirs, queries) for d in sorted(Path(args.outputs).iterdir()) if d.is_dir()]
     if not panel:
         sys.exit(f"no solution directories under {args.outputs}")
     names = [s.name for s in panel]
@@ -115,7 +117,8 @@ def run(args) -> int:
     allowance = float32_allowance(Path(args.float32))
     paramhash = dir_hash(Path(args.param_dir))
     size = args.size or Path(args.param_dir).name
-    golden_root = Path(args.golden_root) / f"{size}_{args.datadate}_{paramhash}"
+    golden_root = Path(args.golden_root) / (f"{size}_{args.datadate}_{paramhash}"
+                                            + ("" if args.queryset == "kx" else f"_{args.queryset}"))
     if not args.reference:
         golden_root.mkdir(parents=True, exist_ok=True)
 
@@ -201,7 +204,9 @@ def main():
     ap.add_argument("-p", "--param-dir", required=True)
     ap.add_argument("-d", "--datadate", required=True)
     ap.add_argument("--size", help="default: the --param-dir basename")
-    ap.add_argument("--querymeta", default="artifacts/queries/inmemory/querymeta.psv")
+    ap.add_argument("--queryset", choices=sorted(solutions.QUERYSETS), default="kx",
+                    help="kx: KX's 84 queries; extra: the fork's common workloads (default: %(default)s)")
+    ap.add_argument("--querymeta", help="default: the query set's querymeta.psv")
     ap.add_argument("--float32", default="artifacts/verification/float32.psv")
     ap.add_argument("--golden-root", default="DATA/verification")
     ap.add_argument("--report", help="default: <first --result-dir>/verification, else results/verification/<size>_<datadate>")

@@ -7,6 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 ENGINES="kdb,kdbxsql,duckdb,chdb,polars,pykx,pandas"
 SOLUTIONS="KDB-X,DuckDB (Index),Polars (Lazy),Pandas"
 RESULT_DIR="./results/inmemory"
+QUERIES="./artifacts/queries/inmemory"
 
 usage() {
     cat <<EOF
@@ -22,6 +23,7 @@ Options:
   -i, --idx          (optional) Filter queries by index: single (42), list (32,42,50), or range (40-44)
   -r, --result-dir   (optional) Directory to persist merged results (default: ${RESULT_DIR})
   -q, --query-output-dir (optional) Directory to persist query outputs
+  --queryset         (optional) kx (default): KX's 84 queries; extra: the fork's common workloads (idx 101+, docs/common-workloads.md)
   -h, --help         Show this help message
 EOF
     exit 1
@@ -38,6 +40,13 @@ while [[ $# -gt 0 ]]; do
         -i|--idx)        IDX_PARAM="-idx $2"; shift 2 ;;
         -r|--result-dir) RESULT_DIR="$2"; shift 2 ;;
         -q|--query-output-dir) QUERY_OUTPUT_DIR="$2"; shift 2 ;;
+        --queryset)
+            case $2 in
+                kx) QUERIES="./artifacts/queries/inmemory" ;;
+                extra) QUERIES="./artifacts/queries/inmemory/extra" ;;
+                *) echo "Unknown query set: $2"; usage ;;
+            esac
+            shift 2 ;;
         -h|--help)    usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
@@ -58,7 +67,7 @@ init_benchmark
 function execute_queries () {
     mkdir -p ${RESULT_DIR}
     echo "Running Queries..."
-    local COMMONPARAMS="-date $DATADATE -storage_backend memory -querymeta ./artifacts/queries/inmemory/querymeta.psv -paramdir ${PARAM_DIR} ${IDX_PARAM}"
+    local COMMONPARAMS="-date $DATADATE -storage_backend memory -querymeta ${QUERIES}/querymeta.psv -paramdir ${PARAM_DIR} ${IDX_PARAM}"
     local RAY_IDX_ARGS=()
     if [[ -n "${IDX_PARAM}" ]]; then
         RAY_IDX_ARGS=(--idx "${IDX_PARAM#-idx }")
@@ -68,72 +77,72 @@ function execute_queries () {
 
         if engine_enabled kdb; then
             if solution_enabled "KDB-X"; then
-                run_solution "KDB-X" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/kdb.psv -s ${s}
+                run_solution "KDB-X" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "time" -indexon "sym" -queryfile ${QUERIES}/kdb.psv -s ${s}
             fi
 
             if solution_enabled "KDB-X (Parted)"; then
-                run_solution "KDB-X (Parted)" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "sym,time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/kdb.psv -s ${s}
+                run_solution "KDB-X (Parted)" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "sym,time" -indexon "sym" -queryfile ${QUERIES}/kdb.psv -s ${s}
             fi
 
             if solution_enabled "KDB-X (Manual Opt)"; then
-                run_solution "KDB-X (Manual Opt)" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/kdb_manualopt.psv -s ${s}
+                run_solution "KDB-X (Manual Opt)" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "time" -indexon "sym" -queryfile ${QUERIES}/kdb_manualopt.psv -s ${s}
             fi
 
             if solution_enabled "KDB-X (NoAttr)"; then
-                run_solution "KDB-X (NoAttr)" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "time" -indexon "" -queryfile ./artifacts/queries/inmemory/kdb_noattr.psv -s ${s}
+                run_solution "KDB-X (NoAttr)" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "time" -indexon "" -queryfile ${QUERIES}/kdb_noattr.psv -s ${s}
             fi
 
             if solution_enabled "KDB-X (Time Sorted)"; then
-                run_solution "KDB-X (Time Sorted)" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "time" -indexon "time" -queryfile ./artifacts/queries/inmemory/kdb_noattr.psv -s ${s}
+                run_solution "KDB-X (Time Sorted)" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -sortcols "time" -indexon "time" -queryfile ${QUERIES}/kdb_noattr.psv -s ${s}
             fi
         fi
         if engine_enabled kdbxsql; then
             if solution_enabled "KDB-X SQL"; then
-                run_solution "KDB-X SQL" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -engine sql -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/sql.psv -s ${s}
+                run_solution "KDB-X SQL" q ./src/runQueries.q ${COMMONPARAMS} -db ${DB_DIR}/kdb -engine sql -sortcols "time" -indexon "sym" -queryfile ${QUERIES}/sql.psv -s ${s}
             fi
         fi
         if engine_enabled duckdb; then
             if solution_enabled "DuckDB (No index)"; then
-                run_solution "DuckDB (No index)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "time" -queryfile ./artifacts/queries/inmemory/duckdb.psv
+                run_solution "DuckDB (No index)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "time" -queryfile ${QUERIES}/duckdb.psv
             fi
 
             if solution_enabled "DuckDB (Sym, Time Sort)"; then
-                run_solution "DuckDB (Sym, Time Sort)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "sym,time" -queryfile ./artifacts/queries/inmemory/duckdb.psv
+                run_solution "DuckDB (Sym, Time Sort)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "sym,time" -queryfile ${QUERIES}/duckdb.psv
             fi
 
             if solution_enabled "DuckDB (Index)"; then
-                run_solution "DuckDB (Index)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/duckdb.psv
+                run_solution "DuckDB (Index)" env DUCKDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine duckdb_con -sortcols "time" -indexon "sym" -queryfile ${QUERIES}/duckdb.psv
             fi
         fi
         if engine_enabled chdb; then
             if solution_enabled "chDB (Memory)"; then
-                run_solution "chDB (Memory)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+                run_solution "chDB (Memory)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ${QUERIES}/chdb.psv
             fi
 
             if solution_enabled "chDB (Memory, Compressed)"; then
-                run_solution "chDB (Memory, Compressed)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) CHDB_COMPRESS=1 ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+                run_solution "chDB (Memory, Compressed)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) CHDB_COMPRESS=1 ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ${QUERIES}/chdb.psv
             fi
 
             if solution_enabled "chDB (PyArrow)"; then
-                run_solution "chDB (PyArrow)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb_pyarrow -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+                run_solution "chDB (PyArrow)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb_pyarrow -sortcols "time" -queryfile ${QUERIES}/chdb.psv
             fi
         fi
         if engine_enabled polars; then
             if solution_enabled "Polars (Eager)"; then
-                run_solution "Polars (Eager)" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -mode eager -sortcols "time" -queryfile ./artifacts/queries/inmemory/polars.psv
+                run_solution "Polars (Eager)" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -mode eager -sortcols "time" -queryfile ${QUERIES}/polars.psv
             fi
             if solution_enabled "Polars (Lazy)"; then
-                run_solution "Polars (Lazy)" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -mode lazy -sortcols "time" -queryfile ./artifacts/queries/inmemory/polars_lazy.psv
+                run_solution "Polars (Lazy)" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -mode lazy -sortcols "time" -queryfile ${QUERIES}/polars_lazy.psv
             fi
         fi
         if engine_enabled pykx; then
             if solution_enabled "pykx"; then
-                run_solution "pykx" env QARGS="-s ${s}" ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/kdb -engine pykx -sortcols "time" -indexon "sym" -queryfile ./artifacts/queries/inmemory/pykx.psv
+                run_solution "pykx" env QARGS="-s ${s}" ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/kdb -engine pykx -sortcols "time" -indexon "sym" -queryfile ${QUERIES}/pykx.psv
             fi
         fi
         if engine_enabled pandas; then
             if solution_enabled "Pandas"; then
-                run_solution "Pandas" env OMP_NUM_THREADS=$(( s > 1 ? s : 1 )) NUMEXPR_NUM_THREADS=$(( s > 1 ? s : 1 )) MKL_NUM_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine pandas -sortcols "time" -queryfile ./artifacts/queries/inmemory/pandas.psv
+                run_solution "Pandas" env OMP_NUM_THREADS=$(( s > 1 ? s : 1 )) NUMEXPR_NUM_THREADS=$(( s > 1 ? s : 1 )) MKL_NUM_THREADS=$(( s > 1 ? s : 1 )) ${PYRUN} pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine pandas -sortcols "time" -queryfile ${QUERIES}/pandas.psv
             fi
         fi
         if engine_enabled qlite; then
@@ -147,7 +156,7 @@ function execute_queries () {
                 run_solution "peachq" "${QBIN_PATH}" ./src/qengine/runQueries.lite.q \
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed \
                     -sortcols "time" -indexon "sym" \
-                    -queryfile ./artifacts/queries/inmemory/kdb.psv
+                    -queryfile ${QUERIES}/kdb.psv
                 record_binary_sha256 "peachq" "${QBIN_PATH}"
             fi
             # The same qSQL on trade and quote stored in DuckDB and linked back as q tables.
@@ -157,7 +166,7 @@ function execute_queries () {
                 run_solution "peachq (via DuckDB)" "${QBIN_DUCKDB_PATH}" ./src/qengine/runQueries.lite.q \
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed -store duckdb \
                     -sortcols "time" -indexon "sym" \
-                    -queryfile ./artifacts/queries/inmemory/kdb.psv
+                    -queryfile ${QUERIES}/kdb.psv
                 record_binary_sha256 "peachq (via DuckDB)" "${QBIN_DUCKDB_PATH}"
             fi
         fi
@@ -169,7 +178,7 @@ function execute_queries () {
                 run_solution "l" "${LBIN}" ./src/qengine/runQueries.lite.q \
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed \
                     -sortcols "time" -indexon "sym" \
-                    -queryfile ./artifacts/queries/inmemory/kdb.psv -s ${s}
+                    -queryfile ${QUERIES}/kdb.psv -s ${s}
                 record_binary_sha256 "l" "${LBIN}"
             fi
         fi
@@ -182,8 +191,8 @@ function execute_queries () {
                     --db-dir "${DB_DIR}" --param-dir "${PARAM_DIR}" \
                     --datadate "${DATADATE}" --cores "${RAYCORES}" \
                     --thread-label "${RAYCORES}" --layout grouped \
-                    --queryfile ./artifacts/queries/inmemory/rayforce.psv \
-                    --querymeta ./artifacts/queries/inmemory/querymeta.psv \
+                    --queryfile ${QUERIES}/rayforce.psv \
+                    --querymeta ${QUERIES}/querymeta.psv \
                     "${RAY_IDX_ARGS[@]}"
             fi
 
@@ -192,8 +201,8 @@ function execute_queries () {
                     --db-dir "${DB_DIR}" --param-dir "${PARAM_DIR}" \
                     --datadate "${DATADATE}" --cores "${RAYCORES}" \
                     --thread-label "${RAYCORES}" --layout parted \
-                    --queryfile ./artifacts/queries/inmemory/rayforce.psv \
-                    --querymeta ./artifacts/queries/inmemory/querymeta.psv \
+                    --queryfile ${QUERIES}/rayforce.psv \
+                    --querymeta ${QUERIES}/querymeta.psv \
                     "${RAY_IDX_ARGS[@]}"
             fi
         fi

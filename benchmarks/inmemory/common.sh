@@ -207,6 +207,15 @@ function record_binary_sha256 () {
 function run_solution () {
     local solution="$1"
     shift
+    # A query set need not carry every solution's file (the common workloads have no Rayfall).
+    local prev=""
+    for arg in "$@"; do
+        if [[ "${prev}" == -queryfile || "${prev}" == --queryfile ]] && [[ ! -f "${arg}" ]]; then
+            echo "Skipping solution '${solution}': this query set has no ${arg}"
+            return 0
+        fi
+        prev="${arg}"
+    done
     local safe=$(basename "$(solution_dir "${solution}")")
     mkdir -p "${RESULT_DIR}/${safe}"
     local result=${RESULT_TMP_DIR}/${safe}_${s}Threads.psv

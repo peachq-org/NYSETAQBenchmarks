@@ -36,7 +36,7 @@ def verify(outputs: Path, **extra) -> dict:
                                   datadate="20260401", size="test", querymeta=str(ROOT / main.solutions.QUERIES /
                                                                                   "querymeta.psv"),
                                   float32=str(ROOT / "artifacts/verification/float32.psv"), golden_root=tmp,
-                                  report=tmp, ledger="", idx="20", reference=None)
+                                  report=tmp, ledger="", idx="20", reference=None, queryset="kx")
         vars(args).update(extra)
         with contextlib.redirect_stdout(io.StringIO()):
             main.run(args)
@@ -57,6 +57,17 @@ class FalsifyingRow(unittest.TestCase):
         got = verify(FIXTURES / "idx20", reference="DuckDB (Index)")
         self.assertEqual(got.pop("DuckDB (Index)"), OK)
         self.assertEqual(set(got.values()), {VALUE_DIFF}, got)
+
+
+class FalsifyingExtraRow(unittest.TestCase):
+    """idx 109 of the common workloads, with Polars' realised volatility taken as the sample deviation (std(), not
+    std(ddof=0)): five other implementations answer the population one."""
+
+    def test_consensus_marks_only_the_sample_deviation(self):
+        got = verify(FIXTURES / "idx109", queryset="extra", idx="109", param_dir=str(ROOT / "artifacts/parameters/tiny"),
+                     datadate="20260701", size="tiny", querymeta=None)
+        self.assertEqual(got.pop("Polars (Eager)"), VALUE_DIFF)
+        self.assertEqual(got, dict.fromkeys(["DuckDB (Index)", "Pandas", "chDB (Memory)", "l", "peachq"], OK))
 
 
 class CanonicalForm(unittest.TestCase):

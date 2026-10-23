@@ -3,6 +3,8 @@ kdbAttributes.sh)."""
 import re
 
 QUERIES = "artifacts/queries/inmemory/"
+# The fork's common workloads (docs/common-workloads.md): one file per engine, named as in QUERIES.
+QUERYSETS = {"kx": QUERIES, "extra": QUERIES + "extra/"}
 
 # solution -> (implementation, query file). Solutions of one implementation are one vote in the consensus:
 # they share an engine and differ only in layout, index or API.
@@ -45,6 +47,6 @@ def implementation(solution: str) -> str:
     return SOLUTIONS.get(solution, (solution, None))[0]
 
 
-def query_file(solution: str):
+def query_file(solution: str, queries: str = QUERIES):
     entry = SOLUTIONS.get(solution)
-    return QUERIES + entry[1] if entry else None
+    return queries + entry[1] if entry else None
