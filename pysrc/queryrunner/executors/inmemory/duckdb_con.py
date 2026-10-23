@@ -194,8 +194,12 @@ class QueryExecutorDuckDBCon:
 
     def write_csv(self, res, out_file: Path) -> None:
         tscols = [row[0] for row in self.con.sql("SELECT column_name FROM (DESCRIBE res) WHERE column_type = 'TIMESTAMP_NS'").fetchall()]
+        # Integer nanoseconds of the day, not hour()/minute()/second(): DuckDB 2.0 rounds those through
+        # microseconds, so 09:59:59.999999533 printed as 10:00:00.999999533.
         for col in tscols:
-            self.con.sql(f"CREATE OR REPLACE TABLE res AS SELECT * REPLACE (format('0D{{:02d}}:{{:02d}}:{{:02d}}.{{:09d}}', hour({col}), minute({col}), second({col}), (epoch_ns({col}) % 1000000000)) AS {col}) FROM res")
+            ns = f"(epoch_ns({col}) % 86400000000000)"
+            self.con.sql(f"CREATE OR REPLACE TABLE res AS SELECT * REPLACE (format('0D{{:02d}}:{{:02d}}:{{:02d}}.{{:09d}}', "
+                         f"{ns} // 3600000000000, {ns} // 60000000000 % 60, {ns} // 1000000000 % 60, {ns} % 1000000000) AS {col}) FROM res")
 
         bcols = [row[0] for row in self.con.sql("SELECT column_name FROM (DESCRIBE res) WHERE column_type = 'BOOLEAN'").fetchall()]
         for col in bcols:
