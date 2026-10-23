@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A benchmark suite that measures in-memory query performance over public
 [NYSE TAQ](https://ftp.nyse.com/Historical%20Data%20Samples/DAILY%20TAQ/) data across
 KDB-X (q-sql), KDB-X SQL, pykx, DuckDB, chDB, Polars (eager and lazy) and Pandas. It also
-contains the static dashboard ([index.html](index.html)) published as GitHub Pages at
-benchmark.kx.com (see [CNAME](CNAME)).
+contains the static dashboard ([index.html](index.html)) that KX publishes at benchmark.kx.com;
+this fork publishes a re-themed copy to peachq.org/benchmark with `tools/publish.sh`.
 
 [README.md](README.md) is the canonical user-facing documentation and stays authoritative —
 when this file or [.claude/skills/run-nyse-taq-benchmarks/SKILL.md](.claude/skills/run-nyse-taq-benchmarks/SKILL.md)

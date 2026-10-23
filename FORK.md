@@ -41,6 +41,9 @@ No vendor is privileged here, including peachq.
 | 18 | `peachq (via DuckDB)` solution: `runQueries.lite.q -store duckdb` writes trade and quote into an in-memory DuckDB through peachq's `:pq:duckdb:` handle and rebinds the names to the linked tables (setup row -4) | Measures the same unchanged `kdb.psv` qSQL with peachq's pushdown into DuckDB, against DuckDB's own SQL twins on the same box | No, peachq-specific |
 | 19 | The lite runner reports a run 1 past max(30 s, 5x the median run 1) as `timeout` and skips its runs 2-3 | A query cannot be interrupted in-process (SIGINT ends a script, `\T` is for client queries), so one pathological query cost three runs | Yes, in principle; upstream has no per-query cap |
 | 20 | The splayed loader turns `exnames` into a char!symbol map | `src/runQueries.q` does (`exec ex!`$name from exnames`); left string-valued, `by sym, exnames ex` grouped on strings, which was 53 s / 7 min 49 s a run on peachq (idx 41/42) | N/A, follows upstream |
+| 21 | `tools/publish.sh` + `pysrc/publishData.py`: stage results for peachq.org/benchmark (a summary `data.js` and the drill-down below) and upload them to `/data/benchmark/`; only `ok` verdicts from verify.sh are published, and `GO=1` refuses without a verdicts file | The fork's results need a home that is not benchmark.kx.com; publishing an unverified timing would rank a wrong answer | No |
+| 22 | `pysrc/buildSite.py` re-themes the drill-down to peachq.org's tokens and font stacks, drops the remaining kx.com link and the consent-manager handler, and asserts no KX mark or palette colour survives in the built copy | A fork-hosted copy must not look like a KX property | No |
+| 23 | `CNAME` (`benchmark.kx.com`) removed | It names KX's domain; this fork does not publish through GitHub Pages | No |
 
 ### Development-machine results are not published
 
@@ -64,6 +67,10 @@ Rejected: a documented convention alone. Publishing already needs an explicit `g
 (`results/` is gitignored), and a rule that only lives in prose fails exactly when someone is
 in a hurry — which is when it matters. Also rejected: filtering by a `DEV_` name prefix, which
 makes a publication decision turn on string matching; the list is data and says what it means.
+
+`tools/publish.sh` passes `--include-dev-machines` deliberately: peachq.org/benchmark and its
+drill-down name the laptop and say on the page that its numbers are not comparable with KX's
+published server results (divergence 21).
 
 The mechanism is fork-specific policy rather than a bug fix, so it is offerable upstream only
 as a feature. Upstream has the same exposure the moment anyone benchmarks on a workstation.

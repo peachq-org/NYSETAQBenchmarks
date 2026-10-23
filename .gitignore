@@ -1,9 +1,10 @@
 results
 .claude/
-/pysrc/**/__pycache__/
+__pycache__/
 external
 DATA
 test/testdb
 .vscode/
 .DS_Store
 CLAUDE.local.md
+build/
