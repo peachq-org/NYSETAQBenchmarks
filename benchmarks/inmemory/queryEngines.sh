@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 ENGINES="kdb,kdbxsql,duckdb,chdb,polars,pykx,pandas"
-SOLUTIONS="KDB-X,DuckDB (Index),Polars,Pandas"
+SOLUTIONS="KDB-X,DuckDB (Index),Polars (Lazy),Pandas"
 RESULT_DIR="./results/inmemory"
 
 usage() {
@@ -106,11 +106,24 @@ function execute_queries () {
             fi
         fi
         if engine_enabled chdb; then
-            run_solution "chDB" env CHDB_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+            if solution_enabled "chDB (Memory)"; then
+                run_solution "chDB (Memory)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+            fi
+
+            if solution_enabled "chDB (Memory, Compressed)"; then
+                run_solution "chDB (Memory, Compressed)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) CHDB_COMPRESS=1 uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+            fi
+
+            if solution_enabled "chDB (PyArrow)"; then
+                run_solution "chDB (PyArrow)" env CHDB_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine chdb_pyarrow -sortcols "time" -queryfile ./artifacts/queries/inmemory/chdb.psv
+            fi
         fi
         if engine_enabled polars; then
-            if solution_enabled "Polars"; then
-                run_solution "Polars" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -sortcols "time" -queryfile ./artifacts/queries/inmemory/polars.psv
+            if solution_enabled "Polars (Eager)"; then
+                run_solution "Polars (Eager)" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -mode eager -sortcols "time" -queryfile ./artifacts/queries/inmemory/polars.psv
+            fi
+            if solution_enabled "Polars (Lazy)"; then
+                run_solution "Polars (Lazy)" env POLARS_MAX_THREADS=$(( s > 1 ? s : 1 )) uv run pysrc/queryrunner/main.py ${COMMONPARAMS} -db ${DB_DIR}/parquet/rowgroup -engine polars -mode lazy -sortcols "time" -queryfile ./artifacts/queries/inmemory/polars_lazy.psv
             fi
         fi
         if engine_enabled pykx; then

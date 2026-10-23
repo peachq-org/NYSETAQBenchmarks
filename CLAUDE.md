@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A benchmark suite that measures in-memory query performance over public
 [NYSE TAQ](https://ftp.nyse.com/Historical%20Data%20Samples/DAILY%20TAQ/) data across
-KDB-X (q-sql), KDB-X SQL, pykx, DuckDB, Polars and Pandas. It also contains the static dashboard
-([index.html](index.html)) published as GitHub Pages at benchmark.kx.com (see [CNAME](CNAME)).
+KDB-X (q-sql), KDB-X SQL, pykx, DuckDB, chDB, Polars (eager and lazy) and Pandas. It also
+contains the static dashboard ([index.html](index.html)) published as GitHub Pages at
+benchmark.kx.com (see [CNAME](CNAME)).
 
 [README.md](README.md) is the canonical user-facing documentation and stays authoritative —
 when this file or [.claude/skills/run-nyse-taq-benchmarks/SKILL.md](.claude/skills/run-nyse-taq-benchmarks/SKILL.md)
@@ -124,21 +125,45 @@ implemented twice:
   formats.
 * [pysrc/queryrunner/main.py](pysrc/queryrunner/main.py) — Python engines, dispatching to a
   per-engine class in [pysrc/queryrunner/executors/inmemory/](pysrc/queryrunner/executors/inmemory/).
+  `-storage_backend memory` is the only backend it implements; the `executors/ondisk/` tree is
+  gone, so `disk` (still in the `-storage_backend` `choices`) raises.
+
+Where one engine is benchmarked in several configurations, the executors are a base class plus
+thin subclasses: `chdb_base.py` → `chdb.py` / `chdb_pyarrow.py`, and `polars_base.py` →
+`polars_eager.py` / `polars_lazy_streaming.py`. `polars_base.py` owns `load_resources`, the
+setup rows, `get_engine_stats`/`get_table_stats` and `write_csv`, and defers the API-specific steps to `_scan`,
+`_transform`, `_sort`, `_frame` and `_collect`: the eager subclass is `DataFrame`s throughout,
+the lazy one hands queries `LazyFrame`s and collects with `engine="streaming"` (the sort
+deliberately stays on the in-memory engine). Both keep `self._tables` as `DataFrame`s, since
+that is what the reported sizes and schemas are read from. `main.py` picks between them on
+`-mode eager|lazy`, which is **mandatory** for `-engine polars`.
 
 Both must: load `exnames`/`master`/`trade`/`quote` into memory then transform → sort → index
 (emitting setup rows with `idx` `0`/`-1`/`-2`/`-3`); run every query 3× (cold, warm, warm) with
 `$FLUSH` invoked before the cold run; emit the **same PSV columns in the same order**; honour
-the same `-idx` / `-tags` / `-instrument` filter semantics; and **abort** on an idx mismatch
+the same `-idx` / `-tags` / `-instrument` filter semantics; write the same `-statsDir`
+`stats.yaml` **twice** (see below); and **abort** on an idx mismatch
 against `querymeta.psv` or a missing/invalid `instrument` value. A change to timing, column
 set, or filtering in one runner must be mirrored in the other, or results stop being comparable
 and `convertToJSFormat.py` breaks.
 
+`-statsDir/stats.yaml` is created before the data is loaded with the solution-level fields only
+(`proprietary`, `engineversion`, `sortcols`) and the per-table sections are **appended** once the
+data is in memory — `get_engine_stats` then `get_table_stats` in `main.py`, `getEngineStats` then
+`getTableStats` in `runQueries.q`. Keeping `sortcols` in the early write is what lets the second write
+append instead of rebuilding the file. The early write is also what makes an OOM-killed run
+reportable: the file exists for `add_solution_name` to stamp the solution name onto, which is the
+only place `convertToJSFormat.py` can learn it from. So **`get_engine_stats` must not touch
+loaded data**, and the finished file must read `proprietary`, `engineversion`, `sortcols`, table
+sections in both runners.
+
 ### "Solution" is a driver-level concept
 
 A *solution* is an engine plus a specific sort/index/query-file combination — `KDB-X`,
-`KDB-X (Parted)`, `KDB-X (NoAttr)`, `DuckDB (Index)`, `KDB-X (Table Dict Peach)`, … The
-runners know nothing about it: they only receive `-sortcols`, `-indexon`, `-format`,
-`-queryfile` and (for the table-dict variants) `EACHPEACH`. The driver scripts are the
+`KDB-X (Parted)`, `KDB-X (NoAttr)`, `DuckDB (Index)`, `Polars (Eager)`, `Polars (Lazy)`,
+`KDB-X (Table Dict Peach)`, … The runners know nothing about it: they only receive
+`-sortcols`, `-indexon`, `-format`, `-queryfile`, `-mode` (Polars) and (for the table-dict
+variants) `EACHPEACH`. The driver scripts are the
 registry of solutions, and [benchmarks/inmemory/common.sh](benchmarks/inmemory/common.sh)
 `run_solution` / `add_solution_name` prepends the `solution` column to each per-solution PSV
 afterwards. To add or rename a solution, edit the driver — and remember `index.html` and
@@ -155,8 +180,12 @@ then calls `init_benchmark` and `run_suite`.
 ### Query set and parameters are cross-file invariants
 
 Queries are stored **per engine** in `artifacts/queries/inmemory/*.psv`, row-aligned by `idx`
-with the engine-independent `querymeta.psv` (`instrument` and `complexity` drive the dashboard
-filters, and `instrument` is mandatory). Query parameters come from
+with the engine-independent `querymeta.psv` — one file **per solution variant** where the
+syntax differs, so Polars has both `polars.psv` (eager) and `polars_lazy.psv`, which are
+identical except that the six `pivot` queries (idx 24–29) insert a `.collect()` first because
+`pivot` has no `LazyFrame` equivalent. A query added to one of the pair must be added to the
+other. In `querymeta.psv`, `instrument` and `complexity` drive the dashboard filters, and
+`instrument` is mandatory. Query parameters come from
 `artifacts/parameters/<SIZE>/*.txt` and are loaded independently by `load_parameters`
 (Python) and [src/getQueryParameters.q](src/getQueryParameters.q) — a new parameter needs a
 `.txt` in **every** size directory plus both loaders. README's *Extending the Benchmarks*
@@ -170,23 +199,60 @@ runs) and `<solution>/{stats.yaml,os.txt}` (per-table stats incl. `proprietary`/
 `sortcols`, and `/usr/bin/time -v` output).
 
 [pysrc/convertToJSFormat.py](pysrc/convertToJSFormat.py) turns a tree of such run directories
-into one `data.generated.js` (ClickBench-style), keyed by `(datadate, machine, solution)` and
-merging thread counts across runs, keeping the latest per key. Machine names come from the CPU
+into one `data.generated.js` (ClickBench-style), keyed by
+`(datadate, machine, solution, numanode)` and merging thread counts across runs, keeping the
+latest per key. `numanode` is the run's `NUMANODE` (`"all"` when it was empty, i.e. unpinned)
+and belongs in the key: a pinned and an unpinned run see different core counts, so their thread
+counts must not merge into one entry. Machine names come from the CPU
 model → name map in [results/mappings.yaml](results/mappings.yaml); an unmapped CPU is a hard
-error, so a new benchmark host needs an entry there. `index.html` picks its data file from
+error, so a new benchmark host needs an entry there.
+
+A solution the OS killed (an OOM on a size that does not fit) never runs a query, so at
+most its **load rows** reach `results.psv` — the criterion is "no row with `idx > 0`", not "no
+row at all", and getting that wrong ranks a killed partial load as a fast one. A solution whose
+`os.txt` reports a non-zero `Exit status` and that ran no query becomes an entry whose
+`exitcode` is that status, with an empty `result` and no measurement beyond what its stats.yaml
+holds; its load rows are dropped, as is any single thread count that loaded but ran no query
+(reporting it would also leave `result[tc]` a zero-length array, which breaks the details
+table). Every other entry gets `exitcode` `0` — read it as the status of the runs the entry's
+numbers came from, **not** of the solution's last run: a solution measured at 4 threads and
+killed at 64 keeps its 4-thread numbers and `exitcode` `0`, even though its `os.txt` (rewritten
+per thread count) says 137. This works
+because **both runners write the solution-level part of stats.yaml before loading any data** (see
+below), so `add_solution_name` has a file to stamp the solution name onto even when the process
+dies loading — the sanitised directory name cannot be turned back into a solution name, so that
+line is the only record of it. A directory without a stats.yaml (a run predating that), and a
+solution that ran no query yet exited cleanly, both warn and are skipped. A key that measured any
+thread count keeps its numbers and drops the failure marker. `benchmark.js` keeps these entries
+out of `filterEntries` (hence out of the details table, load times and charts) and lists them from
+`failedEntries` at the bottom of the summary as a full-length grey `summary-bar-failed`
+line showing `Exit: <code>` — the point being that a failed run reads as failed rather than as
+never attempted — with the name paled out; `availableMachines` ignores them when ranking machines
+by result count, so a failed run cannot make a machine the default view. The entry has no
+thread count, so the row shows at every thread count of that machine. `index.html` picks its data file from
 `available_sizes` / `?size=` and falls back to the generated `querymeta.generated.js` copy when
 opened over `file://`.
 
-The dashboard is two pages over one engine: [assets/js/benchmark.js](assets/js/benchmark.js)
+The dashboard is three pages over one engine: [assets/js/benchmark.js](assets/js/benchmark.js)
 owns everything (selectors, summary, charts, details, load times, URL state, accessibility) and
 is generic over the *series* being compared. Each page loads its results, defines a `page`
 object in a small inline script at the bottom of `<body>` and calls `startBenchmark()`:
 [index.html](index.html) compares solutions on one machine (series = `solution`, with the
 open-source / sort-columns / hardware inline filters and the memory, data-size and
-query-failure charts), [hardware/index.html](hardware/index.html) compares machines running
-one solution (series = `machine`, `page_solution` picks it). The contract of `page` is
-documented at the top of `benchmark.js`; a new comparison page should be another `page`
-object rather than a copy of the engine.
+query-failure charts), [pages/hardware/index.html](pages/hardware/index.html) compares machines
+running one solution (series = `machine`, `page_solution` picks it), and
+[pages/threadscaling/index.html](pages/threadscaling/index.html) compares the thread counts of
+one solution on one machine (series = the thread count). All three carry the NUMA node filter,
+built with the engine's `buildMultiSelect` from `availableNumanodes()` and applied in
+`page.matches` via `numanodeSelected`. The contract of `page` is documented at the top of
+`benchmark.js`; a new comparison page should be another `page` object rather than a copy of
+the engine.
+
+The thread scaling page is the one that reshapes its data: the engine keys measurements as
+`result[thread count]` and picks one with the single-selection `selectors.threads`, so the page
+splits each entry per thread count and re-keys `result`/`load_time` under one collapsed key,
+freeing the thread count to be the series. Its `selectors_threads` row is therefore hidden, and
+its `baselineScope` must pin the machine - unlike the hardware page, its series label does not.
 
 ## Conventions and gotchas
 
@@ -211,7 +277,12 @@ object rather than a copy of the engine.
 * **Reading results**: compare warm runs (`run2timeNS`/`run3timeNS`) at equal `threadcount`
   and `idx`. IO columns should be ~0 for these in-memory benchmarks. A failing engine yields
   `status=error` rows instead of aborting the suite — inspect those rows and the solution's
-  `os.txt`.
+  `os.txt`. A runner that dies outright doesn't abort the suite either: `run_solution`
+  swallows the non-zero exit status, warns, and records the run in `FAILED_SOLUTIONS` so the
+  remaining solutions still run; `run_suite` lists the failures at the end and returns 1, so
+  the driver's own exit status is non-zero. Such a run leaves `results.psv` with at most the
+  solution's load rows — its outcome is recorded only in `<solution>/os.txt`, which is where
+  `convertToJSFormat.py` picks it up so the dashboard can report the failure and its exit status.
 * Commit messages follow `KDBX-<ticket><suffix> <summary>` (e.g.
   `KDBX-694Fix34 adding a dashboard section to the main doc`), with work merged into `main`
   from per-change branches.

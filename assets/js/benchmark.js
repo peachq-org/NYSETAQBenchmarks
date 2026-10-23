@@ -33,7 +33,6 @@
 ///   baselineScope(elem)       whether the entry may serve as the baseline
 ///   baselineChoices(base)     labels offered as baseline
 
-const constant_time_add = 0.01;
 const missing_result_penalty = 2;
 const ns_to_s = 1e-9;
 
@@ -144,6 +143,35 @@ function buildRadio(container, values, current, onSelect) {
         selector.addEventListener('click', e => {
             if (value == current) { return; }
             onSelect(value);
+            render();
+            updateHistory();
+        });
+    });
+}
+
+/// A multi-selection row of selectors backed by a {value -> bool} map in `selectors`,
+/// rebuilt on every render like buildRadio(). Values not present in the map yet start
+/// selected, so a data file gaining a new value does not silently filter it out.
+/// Used by the NUMA node filter of every comparison page. `onToggle` runs before the
+/// re-render, for pages whose single selections can be invalidated by the toggle:
+/// reconcile() bails out before page.reconcile() once the filter leaves no entry
+/// matching them, so they have to be fixed up here instead.
+function buildMultiSelect(container, values, state, onToggle) {
+    clearElement(container);
+    values.forEach(value => {
+        if (state[value] === undefined) { state[value] = true; }
+        let selector = document.createElement('a');
+        selector.className = state[value] ? 'selector selector-active' : 'selector';
+        selector.dataset.value = value;
+        selector.appendChild(document.createTextNode(value));
+        container.appendChild(selector);
+        selector.addEventListener('click', e => {
+            state[value] = !state[value];
+            /// Reflect the toggle here rather than relying on the rebuild: with every
+            /// value deselected nothing matches, and rebuildDynamicSelectors() returns
+            /// before this row is rebuilt - the chip would keep its stale class.
+            selector.classList.toggle('selector-active', state[value]);
+            onToggle?.();
             render();
             updateHistory();
         });
@@ -431,16 +459,39 @@ function queryPassesTagFilters(query_num) {
         !tags.some(tag => selectors.tag_exclude[tag]);
 }
 
-/// Machines ordered by the number of results, most covered first.
+/// Machines ordered by how much they measured, most first. A failed entry carries
+/// no measurement, so it does not count - otherwise a machine could lead the list,
+/// and become the default view, on failed runs alone.
 function availableMachines(base) {
+    const measured = machine => base.filter(elem => elem.machine === machine && !elem.exitcode).length;
     return [... new Set(base.map(elem => elem.machine))].sort((a, b) => {
-        const count_diff = base.filter(elem => elem.machine === b).length - base.filter(elem => elem.machine === a).length;
+        const count_diff = measured(b) - measured(a);
         return count_diff == 0 ? a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'}) : count_diff;
     });
 }
 
 function availableDates(base) {
     return [... new Set(base.filter(page.machineScope).map(elem => elem.datadate))].sort();
+}
+
+/// The NUMA node an entry's run was pinned to ('all' when it was free to use every
+/// node). Data files predating the field report 'n/a' rather than silently claiming
+/// one, so a stale generated file stays readable.
+function numanodeOf(elem) {
+    return elem.numanode ?? 'n/a';
+}
+
+/// Every NUMA node in the loaded data, numeric nodes first. Deliberately not scoped
+/// to the current selection: a node the filter hides must stay togglable.
+function availableNumanodes() {
+    return [... new Set(data.map(numanodeOf))]
+        .sort((a, b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'}));
+}
+
+/// Whether an entry passes the page's NUMA node filter. A value the selector has not
+/// built yet counts as selected - filterEntries() runs before rebuildDynamicSelectors().
+function numanodeSelected(elem) {
+    return selectors.numanode?.[numanodeOf(elem)] !== false;
 }
 
 function availableThreads(base) {
@@ -542,6 +593,16 @@ function selectRun(timings, metric) {
     return timing == null ? null : timing * ns_to_s;
 }
 
+/// Plain ratio of two durations. A missing or zero baseline leaves the ratio
+/// undefined - there is nothing meaningful to divide by - and callers render
+/// null as "no comparable result" rather than Infinity. Note that a baseline in
+/// the microsecond range makes the ratios very large; that is the measurement,
+/// not an artifact.
+function timeRatio(timing, baseline_timing) {
+    if (timing === null || baseline_timing === null || !(baseline_timing > 0)) return null;
+    return timing / baseline_timing;
+}
+
 /// Geometric mean of per-query time ratios against the baseline series.
 /// worst_times[i] is the worst time across the compared series for query i,
 /// used to penalize failed queries (footnote [1] at the page bottom).
@@ -559,9 +620,9 @@ function relativeQueryTime(num_queries, baseline_runs, runs, metric, worst_times
             const curr_timing = selectRun(runs[i], metric);
             /// Failed query: twice the worst ratio across the compared series for
             /// this query (footnote [1] at the page bottom).
-            const ratio = (constant_time_add + (curr_timing ?? worst_times[i])) / (constant_time_add + baseline_timing)
-                * (curr_timing === null ? missing_result_penalty : 1);
-            accumulator += Math.log(ratio);
+            const ratio = timeRatio(curr_timing ?? worst_times[i], baseline_timing);
+            if (ratio === null || !(ratio > 0)) continue;
+            accumulator += Math.log(ratio * (curr_timing === null ? missing_result_penalty : 1));
             ++used_queries;
         }
     }
@@ -760,14 +821,91 @@ function renderMemoryCharts(filtered_data) {
     panel.style.display = has_mem || has_size ? '' : 'none';
 }
 
-function renderSummary(filtered_data, baseline_runs) {
+/// One row of the summary table: the name cell with its remove button, plus an empty
+/// bar cell and number cell for the caller to fill.
+function summaryRow(label, comment) {
+    let tr = document.createElement('tr');
+    tr.className = 'summary-row';
+    tr.dataset.series = label;
+
+    let td_name = document.createElement('td');
+    td_name.className = 'summary-name';
+
+    let remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'remove-system';
+    remove.setAttribute('aria-label', `Remove ${label} from the comparison`);
+    remove.title = `Remove ${label} from the comparison`;
+
+    let removeIcon = document.createElement('span');
+    removeIcon.setAttribute('aria-hidden', 'true');
+    removeIcon.textContent = '×';
+    remove.appendChild(removeIcon);
+    remove.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        selectors[page.series_key][label] = false;
+        seriesSelectorElements().forEach(elem => {
+            if (elem.dataset.series === label) { elem.className = 'selector'; }
+        });
+        render();
+        updateHistory();
+    });
+    td_name.appendChild(remove);
+
+    let name = page.seriesNameNode(label);
+    td_name.appendChild(name);
+
+    if (comment) { td_name.appendChild(addNote(comment)); }
+    td_name.appendChild(document.createTextNode(': '));
+
+    let td_bar = document.createElement('td');
+    td_bar.className = 'summary-bar-cell';
+
+    let td_number = document.createElement('td');
+    td_number.className = 'summary-number';
+
+    tr.appendChild(td_name);
+    tr.appendChild(td_bar);
+    tr.appendChild(td_number);
+
+    return { tr, name, td_bar, td_number };
+}
+
+/// Rows for the series whose benchmark process failed (see failedEntries): they
+/// have no measurement to rank, so they follow the measured rows with a
+/// full-length grey line and the name paled out. In place of a ratio they show the
+/// exit status their runner reported, which says the run failed rather than merely
+/// leaving the reader to guess that it was never attempted.
+function renderFailedRows(table, failed_data) {
+    failed_data.forEach(elem => {
+        const label = page.seriesLabel(elem);
+        const { tr, name, td_bar, td_number } = summaryRow(label, elem.comment);
+        const explanation = `${label} failed with exit status ${elem.exitcode}`
+            + ' before it reported a single query result';
+
+        name.classList.add('summary-name-failed');
+        tr.title = explanation;
+
+        let bar = document.createElement('div');
+        bar.className = 'summary-bar summary-bar-failed';
+        td_bar.appendChild(bar);
+
+        td_number.appendChild(document.createTextNode(`Exit: ${elem.exitcode}`));
+        td_number.setAttribute('aria-label', explanation);
+
+        table.appendChild(tr);
+    });
+}
+
+function renderSummary(filtered_data, failed_data, baseline_runs) {
     let table = document.getElementById('summary');
     clearElement(table);
 
     /// Generate summary
 
     /// The algorithm: for each of the queries,
-    /// - if there is a result - take query duration, add 10 ms, and divide it to the corresponding value of the baseline,
+    /// - if there is a result - divide the query duration by the corresponding value of the baseline,
     /// - if there is no result - take the worst time ratio across the compared series for this query and multiply by 2.
     /// Take geometric mean across the queries.
 
@@ -793,56 +931,17 @@ function renderSummary(filtered_data, baseline_runs) {
         const elem = filtered_data[idx];
         const label = page.seriesLabel(elem);
 
-        let tr = document.createElement('tr');
-        tr.className = 'summary-row';
-
-        tr.dataset.series = label;
-
-        let td_name = document.createElement('td');
-        td_name.className = 'summary-name';
-
-        let remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'remove-system';
-        remove.setAttribute('aria-label', `Remove ${label} from the comparison`);
-        remove.title = `Remove ${label} from the comparison`;
-
-        let removeIcon = document.createElement('span');
-        removeIcon.setAttribute('aria-hidden', 'true');
-        removeIcon.textContent = '×';
-        remove.appendChild(removeIcon);
-        remove.addEventListener('click', e => {
-            e.preventDefault();
-            e.stopPropagation();
-            selectors[page.series_key][label] = false;
-            seriesSelectorElements().forEach(elem => {
-                if (elem.dataset.series === label) { elem.className = 'selector'; }
-            });
-            render();
-            updateHistory();
-        });
-        td_name.appendChild(remove);
-
-        let name = page.seriesNameNode(label);
+        const { tr, name, td_bar, td_number } = summaryRow(label, elem.comment);
         name.style.color = seriesColor(label);
-        td_name.appendChild(name);
-
-        if (elem.comment) { td_name.appendChild(addNote(elem.comment)); }
-        td_name.appendChild(document.createTextNode(': '));
 
         const ratio = summaries[idx];
         const percentage = ratio !== null ? ratio / max_ratio * 100 : 0;
 
-        let td_number = document.createElement('td');
-        td_number.className = 'summary-number';
         if (ratio !== null) {
             appendRatio(td_number, ratio);
         } else {
             td_number.appendChild(document.createTextNode('—'));
         }
-
-        let td_bar = document.createElement('td');
-        td_bar.className = 'summary-bar-cell';
 
         let bar = document.createElement('div');
 
@@ -859,11 +958,10 @@ function renderSummary(filtered_data, baseline_runs) {
 
         td_bar.appendChild(bar);
 
-        tr.appendChild(td_name);
-        tr.appendChild(td_bar);
-        tr.appendChild(td_number);
         table.appendChild(tr);
     });
+
+    renderFailedRows(table, failed_data);
 
     renderFailuresChart(filtered_data);
     renderWinnersPie(filtered_data);
@@ -942,6 +1040,24 @@ function filterEntries() {
     ).map(elem => ({...elem, runs: elem.result[selectors.threads]}));
 }
 
+/// The selected series whose benchmark process failed before it reported a single
+/// result - the operating system killing it for exceeding the available memory is
+/// the usual cause. They carry no timing at all (pysrc/convertToJSFormat.py gives
+/// them their runner's non-zero `exitcode` and leaves their `result` empty), so
+/// filterEntries() never returns them and they take no part in the details table or
+/// the charts; the summary lists them so a solution that hit a wall is visible
+/// rather than silently missing. They have no thread count either, hence no thread
+/// selection here.
+function failedEntries() {
+    return data.filter(elem =>
+        elem.exitcode &&
+        page.matches(elem) &&
+        selectors[page.series_key][page.seriesLabel(elem)] &&
+        page.machineScope(elem) &&
+        elem.datadate == selectors.date
+    );
+}
+
 /// The baseline entry is looked up independently of the series selection, so ratios
 /// stay stable when the baseline series itself is hidden from the charts.
 function findBaselineEntry(filtered_data) {
@@ -967,10 +1083,12 @@ function render() {
     reconcile();
 
     const filtered_data = filterEntries();
+    const failed_data = failedEntries();
     const baseline_entry = findBaselineEntry(filtered_data);
 
     rebuildDynamicSelectors(new Set(baseline_entry
-        ? [...filtered_data.map(page.seriesLabel), page.seriesLabel(baseline_entry)] : []));
+        ? [...filtered_data.map(page.seriesLabel), ...failed_data.map(page.seriesLabel),
+           page.seriesLabel(baseline_entry)] : []));
 
     const nothingSelectedElement = document.getElementById('nothing-selected');
     const resultsContent = [...document.querySelectorAll('.results-content')];
@@ -988,7 +1106,7 @@ function render() {
     const baseline_runs = baseline_entry.result[selectors.threads];
     document.getElementById('baseline-name').textContent = page.seriesLabel(baseline_entry);
 
-    const sorted_indices = renderSummary(filtered_data, baseline_runs);
+    const sorted_indices = renderSummary(filtered_data, failed_data, baseline_runs);
 
     /// Generate details
 
@@ -1001,7 +1119,7 @@ function render() {
         checkbox.addEventListener('change', e => {
             [...document.querySelectorAll('.query-checkbox')].map(elem => { elem.checked = e.target.checked });
             selectors.queries.map((_, i) => { selectors.queries[i] = e.target.checked });
-            renderSummary(filtered_data, baseline_runs);
+            renderSummary(filtered_data, failed_data, baseline_runs);
             updateHistory();
         });
         th_checkbox.appendChild(checkbox);
@@ -1058,7 +1176,7 @@ function render() {
 
         sorted_indices.map(idx => {
             const curr_total = loadTotal(filtered_data[idx]);
-            const ratio = baseline_total !== null ? (constant_time_add + curr_total) / (constant_time_add + baseline_total) : null;
+            const ratio = timeRatio(curr_total, baseline_total);
 
             let td = document.createElement('td');
             appendTimingWithRatio(td, curr_total, ratio);
@@ -1084,7 +1202,7 @@ function render() {
         sorted_indices.map(idx => {
             /// A phase a series does not report costs it nothing, so it shows as 0.000s.
             const curr_timing = (filtered_data[idx].load_time?.[phase]?.[selectors.threads] ?? 0) * ns_to_s;
-            const ratio = baseline_timing !== null ? (constant_time_add + curr_timing) / (constant_time_add + baseline_timing) : null;
+            const ratio = timeRatio(curr_timing, baseline_timing);
 
             let td = document.createElement('td');
             appendTimingWithRatio(td, curr_timing, ratio);
@@ -1112,7 +1230,7 @@ function render() {
         checkbox.checked = selectors.queries[query_num];
         checkbox.addEventListener('change', e => {
             selectors.queries[query_num] = e.target.checked;
-            renderSummary(filtered_data, baseline_runs);
+            renderSummary(filtered_data, failed_data, baseline_runs);
             updateHistory();
         });
         td_checkbox.appendChild(checkbox);
@@ -1134,7 +1252,7 @@ function render() {
         sorted_indices.map((idx, col) => {
             const curr_timing = selectRun(filtered_data[idx].runs[query_num], selectors.metric);
             const baseline_timing = selectRun(baseline_runs[query_num], selectors.metric);
-            const ratio = curr_timing !== null && baseline_timing !== null ? (constant_time_add + curr_timing) / (constant_time_add + baseline_timing) : null;
+            const ratio = timeRatio(curr_timing, baseline_timing);
 
             let td = document.createElement('td');
             appendTimingWithRatio(td, curr_timing, ratio);
@@ -1190,7 +1308,7 @@ function render() {
         details_body.appendChild(tr);
     }
 
-    findPassiveSelectors(filtered_data);
+    findPassiveSelectors([...filtered_data, ...failed_data]);
 
     /// The small hint below the column heading
     document.getElementById("scale_hint").textContent = 'Each colour band shows the same ratio range at a different scale: 1x and 10x.';
@@ -1539,7 +1657,11 @@ async function initBenchmark() {
     document.getElementById('selector-metric-hot').addEventListener('click', e => { selectors.metric = 'hot'; render(); updateHistory(); });
     document.getElementById('selector-metric-hot2').addEventListener('click', e => { selectors.metric = 'hot2'; render(); updateHistory(); });
 
-    selectors.queries = Object.values(data[0].result)[0].map(k => true);
+    /// One checkbox per query, all ticked. The lengths come from the first entry
+    /// that measured anything - data[0] is whichever entry sorts first, and a
+    /// failed one carries no result at all.
+    const measured = data.find(elem => Object.values(elem.result).length > 0);
+    selectors.queries = (Object.values(measured?.result ?? {})[0] ?? []).map(k => true);
 
     /// Pre-format the per-cell tooltip texts from the query texts and engine name
     /// recorded in each entry by pysrc/convertToJSFormat.py.

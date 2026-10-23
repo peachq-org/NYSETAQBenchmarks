@@ -1,6 +1,6 @@
 ---
 name: run-nyse-taq-benchmarks
-description: Run the KX NYSE TAQ benchmark suite end-to-end. Use when the user wants to benchmark in-memory query engines (KDB-X, KDB-X SQL, Polars, DuckDB, Pandas, pykx) or compare KDB-X attributes/table formats on NYSE TAQ data — i.e. selecting a data SIZE, downloading PSV files, generating kdb+/Parquet databases, and running queryEngines.sh or kdbAttributes.sh and reading the PSV results.
+description: Run the KX NYSE TAQ benchmark suite end-to-end. Use when the user wants to benchmark in-memory query engines (KDB-X, KDB-X SQL, Polars, DuckDB, chDB, Pandas, pykx) or compare KDB-X attributes/table formats on NYSE TAQ data — i.e. selecting a data SIZE, downloading PSV files, generating kdb+/Parquet databases, and running queryEngines.sh or kdbAttributes.sh and reading the PSV results.
 ---
 
 # Run the NYSE TAQ Benchmarks
@@ -20,15 +20,15 @@ Ask (or infer from the request) two things:
 
 1. **Which benchmark?**
    - *In-memory query engine* (`benchmarks/inmemory/queryEngines.sh`) — compares
-     KDB-X, KDB-X SQL, DuckDB, Polars, Pandas, pykx. Needs **both** kdb+ and
-     Hive-partitioned Parquet databases.
+     KDB-X, KDB-X SQL, DuckDB, chDB, Polars (eager and lazy), Pandas, pykx.
+     Needs **both** kdb+ and Hive-partitioned Parquet databases.
    - *KDB-X attribute / table-format* (`benchmarks/inmemory/kdbAttributes.sh`) —
      measures the impact of sort columns, `sym`/`time` attributes, and table-dict
      layout. Needs **only** the kdb+ database.
 2. **What `SIZE`?** This controls download volume and memory needs (see Step 1).
    Larger sizes require more resources (network, disk, and memory) and take
    longer to run the benchmark. When unsure, recommend `small` for a first run,
-   `medium` for KDB-X Community Edition (it has a memory cap).
+   `tiny` for KDB-X Community Edition (it has a memory cap).
 3. **Is the data already generated?** Steps 2–3 (download + DB generation) are
    the slow, expensive part and are often already done from a previous run. A
    common case is wanting to **re-run queries with different parameters** (e.g.
@@ -86,20 +86,32 @@ mid-pipeline failure:
   For the kdb+ parser, the taq module's own dependencies must also be installed
   to the standard KX module path (see the README's *kdb+ Parser* section).
 - **`numactl`** — only if the user wants NUMA pinning via `NUMANODE` (optional).
-- Disk space matching the chosen `SIZE` (see the HDB-size column below).
+- Disk space and RAM matching the chosen `SIZE` (see the Disk/Memory columns below).
 
 ## Step 1 — Select a data size
 
 ```bash
-export SIZE=small   # small | medium | large | full
+export SIZE=tiny   # tiny | small | medium | large | xlarge | full
 ```
 
-| `SIZE`  | Use for                                   | Symbols | HDB size | # quotes        |
-| ------- | ----------------------------------------- | ------- | -------: | --------------: |
-| `small` | quick familiarization (symbols: Z)        | 94      | ~1 GB    | 4,607,158       |
-| `medium`| KDB-X Community Edition (symbols: I)       | 555     | ~13 GB   | 180,827,332     |
-| `large` | unlimited license, limited RAM (A–H)       | 4,849   | ~52 GB   | 707,738,295     |
-| `full`  | most thorough (A–Z)                        | 11,155  | ~233 GB  | 2,313,872,956   |
+Statistics below are for data from 2026-04-01 (see the README's *Step 1* table):
+
+| `SIZE`   | Use for                                    | Symbol first letters | Memory (GB) | Disk (GB) | # quote symbols | # quotes      |
+| -------- | ------------------------------------------ | -------------------- | ----------: | --------: | --------------: | ------------: |
+| `tiny`   | pipeline testing, KDB-X Community Edition  | Z                    | 1           | 1         | 259             | 9,422,051     |
+| `small`  | pipeline testing / quick familiarization   | X–Z                  | 17          | 9         | 909             | 143,336,607   |
+| `medium` | first realistic run                        | T–Z                  | 70          | 39        | 4,018           | 588,006,863   |
+| `large`  | unlimited license, limited RAM             | P–Z                  | 142         | 83        | 8,964           | 1,283,196,520 |
+| `xlarge` | large machine                              | I–Z                  | 153         | 124       | 15,127          | 1,901,235,410 |
+| `full`   | most thorough                              | A–Z                  | 296         | 187       | 26,396          | 2,860,612,301 |
+
+> **Warning:** `tiny` and `small` are not representative of client data volumes —
+> use them to check the pipeline runs end-to-end, not to draw conclusions from
+> query results.
+
+You are not limited to these presets: both parsers accept an arbitrary
+first-letter interval via `-letters` (e.g. `C-G`) — see the README's *Custom
+sizes* section.
 
 `SIZE` must stay consistent across every later step — the parameter files in
 `artifacts/parameters/${SIZE}` and the symbol subset all key off it. If the user
@@ -139,12 +151,13 @@ the Python dataframe/SQL engines read Parquet:
 | `kdbxsql` | KDB-X SQL | kdb+ |
 | `pykx` | KDB-X Python (`pykx`) | kdb+ |
 | `duckdb` | DuckDB | Parquet |
-| `polars` | Polars | Parquet |
+| `chdb` | chDB (embedded ClickHouse) | Parquet |
+| `polars` | Polars — two solutions, `Polars (Eager)` and `Polars (Lazy)` | Parquet |
 | `pandas` | Pandas | Parquet |
 
 So generate only kdb+ if restricting to `kdb`/`kdbxsql`/`pykx`, only Parquet if
-restricting to `duckdb`/`polars`/`pandas`, and **both** for the default (all
-engines). The attribute benchmark always needs kdb+ only.
+restricting to `duckdb`/`chdb`/`polars`/`pandas`, and **both** for the default
+(all engines). The attribute benchmark always needs kdb+ only.
 
 **For the query-engine benchmark with all engines — generate BOTH formats:**
 ```bash
@@ -209,9 +222,10 @@ Optional:
 | Flag | Meaning | Default |
 | --- | --- | --- |
 | `-t`, `--threads` | space-separated secondary-thread counts to test; each engine runs once per value (`0` = no secondary threads) | `"1 4"` |
-| `-e`, `--engines` | (queryEngines only) comma-separated subset of `kdb,kdbxsql,duckdb,polars,pykx,pandas` | all |
+| `-e`, `--engines` | (queryEngines only) comma-separated subset of `kdb,kdbxsql,duckdb,chdb,polars,pykx,pandas` | all |
+| `-s`, `--solutions` | (queryEngines only) comma-separated subset of the named variants within those engines, or `"ALL"` for every variant. Polars contributes `Polars (Eager)` and `Polars (Lazy)`; picking the `polars` engine alone runs neither unless one of those names is selected | `"KDB-X,DuckDB (Index),Polars (Lazy),Pandas"` |
 | `-i`, `--idx` | run a subset of queries: `42`, `32,42,50`, or range `40-44` | all |
-| `-q`, `--query-output-dir` | persist each engine's query outputs as `queryoutput_<idx>.csv` (per-engine subdir) for cross-engine correctness checks | not persisted |
+| `-q`, `--query-output-dir` | persist each solution's query outputs as `queryoutput_<idx>.csv` (per-solution subdir, e.g. `Polars_Eager_`) for cross-engine correctness checks | not persisted |
 | `-r`, `--result-dir` | directory for the merged `results.psv`, plus per-solution stats (`<solution>/stats.yaml` + `os.txt`) and `environment.yaml` | `./results/inmemory` |
 | `-h`, `--help` | usage | — |
 

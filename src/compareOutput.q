@@ -153,7 +153,7 @@ compare: {[idx: `j; tags: `C; instrument; complexity; description; sortby; comme
         if[count missing: cols[t2] except cols t1;
             .log.error "Columns in ", (1_string srct2), " not in ", (1_string srct1), ": ", "," sv string missing];
         :()];
-    .log.info "Number of columns: \t\tOK";
+    .log.info "Number of columns: \tOK";
 
 
     if[ not (asc cols t1) ~ asc cols t2;
@@ -176,7 +176,7 @@ compare: {[idx: `j; tags: `C; instrument; complexity; description; sortby; comme
             idx: first where notok;
             .log.error "Column content differs: ", string c;
             .log.error "Differ in column ", string[c], " e.g. index ", string[idx], ": ", string[t1[idx;c]], " vs ", string[t2[idx;c]];
-            ;();
+            :();
         ]}[t1;t2] each cols t1;
 
     if[errorsBefore=ERRORS; .log.info "Content: \t\t\tOK"];
