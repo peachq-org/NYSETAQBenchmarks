@@ -26,10 +26,11 @@ git submodule update --init --recursive
 
 ### Test
 
-There is a single end-to-end smoke test — no unit-test framework, no linter config:
+There is a single end-to-end smoke test, plus the verifier's unit tests (stdlib `unittest`, needs `polars`):
 
 ```bash
 ./test/inmemory.sh
+python -m unittest discover -s test/verify
 ```
 
 It builds a tiny kdb+ and Parquet DB from the submodule's test PSVs
@@ -92,10 +93,10 @@ Both accept `-help` (q) / `--help` (Python).
 ### Supporting tools
 
 ```bash
-# Cross-engine output equivalence (see README "Verifying Query Output Correctness")
-./benchmarks/inmemory/queryEngines.sh ... --query-output-dir ./results/inmemory/output
-q src/compareOutput.q -querymeta ./artifacts/queries/inmemory/querymeta.psv \
-  -queryoutput1 ./results/inmemory/output/KDB-X -queryoutput2 ./results/inmemory/output/DuckDB_Index_
+# Cross-engine output verification against the consensus golden (README "Verifying Query Output
+# Correctness", rule in docs/verification.md); records each solution in artifacts/verification/ledger.psv
+./benchmarks/inmemory/queryEngines.sh ... -r ./results/inmemory/run -q ./results/inmemory/output
+./benchmarks/inmemory/verify.sh -q ./results/inmemory/output -r ./results/inmemory/run -p ./artifacts/parameters/${SIZE} -d ${DATADATE}
 
 # Regenerate dashboard data for a size (also refreshes querymeta.generated.js)
 uv run pysrc/convertToJSFormat.py ./results/inmemory/${SIZE} ./results/inmemory/${SIZE}/data.generated.js
@@ -272,8 +273,8 @@ its `baselineScope` must pin the machine - unlike the hardware page, its series 
   validate them against explicit `MANDATORY` / `ALLOWED` symbol lists, printing `USAGE` and
   exiting non-zero — keep that pattern when adding options.
 * **Engine equivalence is a hard requirement**, not a nicety: a new or changed query must
-  return identical output across engines (floats within `FLOATDIFFTHREASHOLD`), verified with
-  `--query-output-dir` + `src/compareOutput.q`. Executor `write_csv` output must be
+  return output equal to the consensus of the other engines under `docs/verification.md`, verified with
+  `--query-output-dir` + `benchmarks/inmemory/verify.sh`. Executor `write_csv` output must be
   kdb+-loadable (booleans as `1`/`0`, temporals as q literals).
 * **Reading results**: compare warm runs (`run2timeNS`/`run3timeNS`) at equal `threadcount`
   and `idx`. IO columns should be ~0 for these in-memory benchmarks. A failing engine yields
