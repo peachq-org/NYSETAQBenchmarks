@@ -244,8 +244,8 @@ persistOutput: {[dir; res; idx]
   m: 0! meta res;
   cs: flip res;
   / .Q.f does not accept every float type everywhere; where it does not, leave
-  / the column for .h.cd to format.
-  fmt6: {[c] $[10h ~ type r: @[{[c] .Q.f[6] each c}; c; {x}]; c; r]};
+  / the column for .h.cd to format. Reals widen first: l formats a real imprecisely.
+  fmt6: {[c] $[10h ~ type r: @[{[c] .Q.f[6] each `float$c}; c; {x}]; c; r]};
   cs: {[fmt6; cs; c] cs[c]: fmt6 cs c; cs}[fmt6]/[cs; m[`c] where m[`t] in "ef"];
   .Q.dd[dir; `$"queryoutput_", idx, ".csv"] 0: CD origCols xcol flip cs;}
 
