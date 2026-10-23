@@ -139,21 +139,21 @@ function execute_queries () {
         if engine_enabled qlite; then
             # peachq is single-threaded, so every thread count would report
             # threadcount 1 and emit a duplicate set of rows; run it once.
-            if solution_enabled "qlite" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
+            if solution_enabled "peachq" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
                 # Resolved before the run so an unavailable binary fails here
                 # rather than as an empty command inside run_solution.
                 local QBIN_PATH
                 QBIN_PATH=$(bash ./src/qengine/qbin.sh)
-                run_solution "qlite" "${QBIN_PATH}" ./src/qengine/runQueries.lite.q \
+                run_solution "peachq" "${QBIN_PATH}" ./src/qengine/runQueries.lite.q \
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed \
                     -sortcols "time" -indexon "sym" \
                     -queryfile ./artifacts/queries/inmemory/kdb.psv
             fi
             # The same qSQL on trade and quote stored in DuckDB and linked back as q tables.
-            if solution_enabled "qlite (DuckDB)" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
+            if solution_enabled "peachq (via DuckDB)" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
                 local QBIN_DUCKDB_PATH
                 QBIN_DUCKDB_PATH=$(bash ./src/qengine/qbin.sh duckdb)
-                run_solution "qlite (DuckDB)" "${QBIN_DUCKDB_PATH}" ./src/qengine/runQueries.lite.q \
+                run_solution "peachq (via DuckDB)" "${QBIN_DUCKDB_PATH}" ./src/qengine/runQueries.lite.q \
                     ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed -store duckdb \
                     -sortcols "time" -indexon "sym" \
                     -queryfile ./artifacts/queries/inmemory/kdb.psv

@@ -31,7 +31,7 @@ if ! command -v q > /dev/null; then
     echo "      its own with:" >&2
     echo "        SIZE=full DATAFORMAT=splayed ./generateDB.sh ${TESTPSV} DIR/splayed DATE" >&2
     echo "        ./benchmarks/inmemory/queryEngines.sh --db-dir DIR --param-dir ... \\" >&2
-    echo "          --datadate DATE --engines qlite --solutions qlite" >&2
+    echo "          --datadate DATE --engines qlite --solutions peachq" >&2
     exit 77
 fi
 
@@ -61,7 +61,7 @@ q ./artifacts/parameters/genParameters.q -db "${TESTDB}/kdb" -dst "${PARAM_DIR}"
 # the only arm that needs no KDB-X binary, and so the one that must not be
 # quietly dropped. Adding an engine to the suite means adding it here too.
 SMOKE_ENGINES="kdb,kdbxsql,duckdb,chdb,polars,pykx,pandas,qlite"
-SMOKE_SOLUTIONS="KDB-X,DuckDB (Index),Polars,Pandas,qlite"
+SMOKE_SOLUTIONS="KDB-X,DuckDB (Index),Polars,Pandas,peachq"
 
 if [[ "${RAYFORCE_SMOKE:-0}" == "1" ]]; then
     RAYFORCE_BIN="${RAYFORCE_BIN:-$(cd .. && pwd)/rayforce/rayforce}"
