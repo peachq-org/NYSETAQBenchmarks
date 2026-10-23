@@ -55,7 +55,8 @@ Two float cells `a` and `b` agree when both are null, or they are equal, or
   everything else is 6.5e-6 (DuckDB `avgWeightedSpread`, idx 41–42, where `ask - bid` is evaluated in REAL), and the
   next largest 1.1e-6 (Polars Lazy `size`, idx 62). A row is added only with a measurement; a rise above 1e-5 is a
   defect to explain, not an allowance to widen. It does not cover a different answer: Polars' `dev` of the spread
-  is 3.3e-5 out on idx 36 and 41% out on idx 41, and both stay red.
+  was 3.3e-5 out on idx 36 and 41% out on idx 41 because it was the sample deviation, and the fix was the
+  translation (`FORK.md` divergence 26), not an allowance.
 
 Rows that tie on every non-float column are sorted by their floats, and two engines' floats can order such a tie
 differently while agreeing within tolerance. Where the sorted tables differ only inside such ties, the tied rows are
@@ -71,6 +72,14 @@ differ in float32, so its order inside a mid tie is not the double engines' orde
 
 If the emitted order differs beyond that but the sorted tables agree, the verdict is `order-only`; this is the only
 query class where `order-only` can occur.
+
+**Order inside a running computation.** A moving or cumulative value (`mavg`, `sums`, a window frame; idx 47–55)
+depends on the order of the rows it runs over, whether or not the query is `sort`-tagged. That order is the table's:
+`time`, ties kept in load order, which is what `xasc` on the q side and `rowid` on the SQL side give. A translation
+states it explicitly (`ORDER BY rowid`, not `ORDER BY time`, whose ties any engine may break as it likes). A solution
+whose layout keeps another physical order (`sym,time` for Rayforce Parted, and for KDB-X (Parted) running the same
+`kdb.psv`) answers a different question on the
+cumulative queries that span instruments (idx 53, 55); it stays red, and the reason is recorded in `FORK.md`.
 
 ## 4. The consensus golden
 

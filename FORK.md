@@ -46,6 +46,11 @@ No vendor is privileged here, including peachq.
 | 23 | `CNAME` (`benchmark.kx.com`) removed | It names KX's domain; this fork does not publish through GitHub Pages | No |
 | 24 | `duckdb.psv` idx 24–29 name pivot columns by the pivot value alone (`USING AVG(liqWMid)`, no `AS avgLiqWMid`) | DuckDB answered `H_avgLiqWMid` where every other engine answers `H`, so six queries could never match. A translation that names columns differently is fixed in the translation, not taught to the comparator | Yes, standalone |
 | 25 | Output verification by consensus: `benchmarks/inmemory/verify.sh` (`pysrc/verify/`), its rule in `docs/verification.md`, its record in `artifacts/verification/ledger.psv` | `src/compareOutput.q` needs KDB-X (2 h for 9 solutions on `tiny` through the peachq shim), trusts one engine — DuckDB was wrong twice in one week — and its absolute 5e-5 float tolerance and order-sensitivity reported mostly noise. Nothing recorded that a published result was ever checked | Yes, in principle: it needs no KX product, and `compareOutput.q` stays |
+| 26 | `polars.psv` / `polars_lazy.psv` idx 36–43 `std(ddof=0)` | q `dev` is the population deviation (qdocs `ref/dev.md:18`; `sdev` is the sample one, `:153`). Polars' `std()` is the sample one, so every `devSpread` was sqrt(n/(n-1)) high: idx 37 exchange Y, n = 22, 1.09908 for 1.07381 | Yes, standalone |
+| 27 | `polars.psv` / `polars_lazy.psv` idx 39, 45–46 sum the sizes as `Int64` | `asize` and `bsize` are `Int32` and their sum wraps: ZSL's 3,014,324,600 summed to -1,280,642,696, so idx 46 answered -71.23 for 30.26. idx 39 has the same sum its twin idx 40 already widens; 45 the same as 46 | Yes, standalone |
+| 28 | `polars.psv` / `polars_lazy.psv` idx 47–48 `rolling_mean(window_size=20, min_samples=1)` | q `mavg` averages the terms so far over the first items (qdocs `ref/avg.md:95`); Polars answered null for the first 19 rows. idx 49–50 already pass `min_samples=1` | Yes, standalone |
+| 29 | `chdb.psv` idx 20–23, 49–50 divide with `divideOrNull` | 31 quotes of the infrequent instrument have `bsize + asize = 0`; ClickHouse's `0/0` is NaN and NaN poisons `avg`, where q's null is ignored (qdocs `ref/avg.md:24`). The same fix divergence 13 makes for DuckDB with a setting; chDB has no such setting | Yes, standalone |
+| 30 | `duckdb.psv` idx 51–55 and `chdb.psv` idx 51–53 order their running windows `BY rowid`, not `BY time` | Rows tied on `time` came in an order the engine chose: DuckDB idx 54 was off on 4 rows tied on (sym, time) in every one of 3 runs, chDB idx 52 on row 11303 (21,283 trades, 19,118 distinct times). `rowid` is the table's stable time order, the order q's `sums` runs in (`docs/verification.md` section 3). idx 55 on chDB and 49–50 on both already used it | Yes, standalone |
 
 ### Verification rules
 
@@ -126,6 +131,20 @@ The second and third only bite a table read straight off disk; the same expressi
 in-memory table are fine. The third is why `src/loadSplayedDataset.q` materialises rather than
 leaving the tables mapped — which is what the benchmark wants regardless, so the workaround
 costs nothing and is not a divergence.
+
+### Known verification reds on `tiny`
+
+What `verify.sh` still reports on `tiny` (2026-07-01) after divergences 26–30, each with its measured cause. None
+is a translation that asks a different question, so none is fixed here.
+
+| Solution | idx | Verdict | Cause | Filed |
+|---|---|---|---|---|
+| peachq, peachq (via DuckDB) | 49–50 | value-diff | `xasc` broke time ties out of load order on tables past ~500k rows, so `5 mavg` ran over tied quotes in another order; root: under `\s 0` `iasc til 100000` was not `til 100000` | [timestored/openq#1041](https://github.com/timestored/openq/pull/1041), fixed there; green once the pin moves past it |
+| Rayforce, Rayforce Parted | 61 | missing | `(prior == sy)` over a symbol vector is a `LIST`, not `B8`, so `where` rejects it (2.11.5; `rayforce.psv` was written for 2.5.11) | [RayforceDB/rayforce#966](https://github.com/RayforceDB/rayforce/issues/966) |
+| Rayforce Parted | 53, 55 | value-diff | Not a Rayforce defect: the layout is sorted `sym,time`, and its running sum over every trade of one exchange is exactly the running sum in that order (all 142 / 63,939 rows). The question depends on physical order (`docs/verification.md` section 3); KDB-X (Parted) would answer the same | not filed |
+
+On the fixture (2026-04-01) Pandas and chDB (Memory) also differ on idx 32–33 `avgSpread` by 1.5e-6 relative, as
+they did before this change; it is not investigated here.
 
 ## Upstream ledger
 
