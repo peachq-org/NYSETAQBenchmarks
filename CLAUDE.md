@@ -193,6 +193,9 @@ other. In `querymeta.psv`, `instrument` and `complexity` drive the dashboard fil
 `.txt` in **every** size directory plus both loaders. README's *Extending the Benchmarks*
 section is the detailed procedure; follow it rather than improvising.
 
+The fork's own common workloads (idx 101+) are a second set in `artifacts/queries/inmemory/extra/`, run and verified
+with `--queryset extra` ([docs/common-workloads.md](docs/common-workloads.md)). KX's 84 are never edited to add one.
+
 ### Results layout and the dashboard
 
 Per-solution PSVs go to a scratch `<result-dir>/tmp`, merged into `<result-dir>/results.psv`.

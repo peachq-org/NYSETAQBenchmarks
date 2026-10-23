@@ -323,6 +323,7 @@ And the following optional parameters:
 | `-e`, `--engines` | Comma-separated subset of engines to run. Valid values: `kdb`, `kdbxsql`, `duckdb`, `polars`, `chdb`, `pykx`, `pandas`, `rayforce`. Default: all except the optional `rayforce` engine. |
 | `-s`, `--solutions` | Comma-separated subset of solutions to run, or `"ALL"` to run all available solutions. Solutions are named variants of engines with different attributes/indexes, including `Rayforce` and `Rayforce Parted`. Default: `"KDB-X,DuckDB (Index),Polars (Lazy),Pandas"`. Examples: `-s "KDB-X,KDB-X (Parted),Polars (Eager)"` or `-s "ALL"`. |
 | `-i`, `--idx` | Filter queries by index: single (`42`), comma-separated list (`32,42,50`), or range (`40-44`). Default: run all queries. |
+| `--queryset` | `kx` (default): KX's 84 queries. `extra`: the fork's nine common workloads, idx 101+, from `artifacts/queries/inmemory/extra/` ([docs/common-workloads.md](./docs/common-workloads.md)); a solution with no file there (Rayforce) is skipped. |
 | `-r`, `--result-dir` | Directory to persist merged results. Default: `./results/inmemory`. |
 | `-q`, `--query-output-dir` | Directory to persist query outputs. Each solution writes its results as `queryoutput_<idx>.csv` into a per-solution subdirectory, for cross-engine correctness checks (see [Verifying Query Output Correctness](#verifying-query-output-correctness)). Default: outputs are not persisted. |
 | `-h`, `--help` | Show usage and exit. |
@@ -508,7 +509,15 @@ You may then need to adjust the small configuration block at the top of
 tools/publish.sh --results DIR --size tiny --verdicts verdicts.tsv                  # dry run
 GO=1 tools/publish.sh --results DIR --size tiny --verdicts verdicts.tsv             # upload
 tools/publish.sh --results DIR --size tiny --unverified --local /path/to/public_html/data/benchmark  # local preview
+tools/publish.sh --results DIR --size tiny --verdicts verdicts.tsv \
+    --extra-results XDIR --extra-verdicts extra-verdicts.tsv                       # with the common workloads
 ```
+
+`--extra-results` adds the common workloads (`queryEngines.sh --queryset extra`, verified with
+`verify.sh --queryset extra`) as their own set: `extraQueries`, `extraTimes`, `extraMph` and
+`extraNotWritten` in `data.js`, and their own history series (`queryset: extra`). Their MPH follows
+the same rules against the same target, over their own queries only; they are not in `full/`, and
+must come from the machine, data date and NUMA setting of `DIR`.
 
 `data.js` carries the page's curated solutions (`--page-solutions`, default peachq, peachq (via
 DuckDB), DuckDB (Index), l, Rayforce, Rayforce Parted, Polars (Lazy), Pandas); `full/` keeps
@@ -530,8 +539,8 @@ query, and a query only DuckDB answered is skipped. MPH is 100 / the geometric m
 the median MPH is 100 / their median.
 
 A verified publish appends the run's MPH to [artifacts/publish/history.psv](./artifacts/publish/history.psv),
-one row per (run date, solution, thread count); commit it after publishing. Publishing the same run
-again adds nothing (key: run date, solution, threads, binary sha256, target, target version, size).
+one row per (run date, query set, solution, thread count); commit it after publishing. Publishing the same run
+again adds nothing (key: run date, query set, solution, threads, binary sha256, target, target version, size).
 The binary sha256 is the `binarysha256` line `queryEngines.sh` appends to the stats.yaml of the q
 binaries it runs (peachq, peachq (via DuckDB), l), empty for runs made before it did. A new
 DuckDB version or target starts a new series, which the page's trend chart never joins to the old.
@@ -548,7 +557,12 @@ window.PEACHQ_BENCHMARK = {
   target: "DuckDB (Index)", baselineVersion: "2.0.0",   // the solution that is 100 MPH, and its version
   mph: {<solution id>: {<threads>: {mph, mphMedian, answered, failed, total}}},
   history: [{date, solution, version, binarySha256, target, baselineVersion,
-             threads, size, datadate, mph, mphMedian, answered, failed}]   // the history file, oldest first
+             threads, size, datadate, mph, mphMedian, answered, failed,
+             queryset}],                     // the history file, oldest first; queryset kx or extra
+  // only with --extra-results: the common workloads, the same shapes over their own queries
+  extraQueries: [{idx, description, tags, definition}],
+  extraTimes, extraMph,
+  extraNotWritten: {<solution id>: [idx, ...]}   // queries the solution has no translation of
 }
 ```
 
@@ -817,6 +831,8 @@ pass and never part of a timed run.
    `-i` restricts it to some queries (`42`, `32,42,50`, `40-44`), and
    `--reference <solution>` compares against one solution instead of the
    consensus, for a quick pairwise look (it records nothing).
+   `--queryset extra` verifies the common workloads by the same rule, reading
+   their query files and `querymeta.psv` from `artifacts/queries/inmemory/extra/`.
 
    It writes:
 

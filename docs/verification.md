@@ -128,5 +128,10 @@ The key is what makes a verification stale — solution, `engineversion` (from i
 query file and of the parameter directory, the data date and the size. A published (solution, engine version) pair
 with no `ledger.psv` row for its query file and parameters has not been verified.
 
+The common workloads ([`common-workloads.md`](common-workloads.md), idx 101+) are verified by exactly this rule with
+`--queryset extra`, which reads their query files and `querymeta.psv` from `artifacts/queries/inmemory/extra/` and
+stores their golden under `<size>_<datadate>_<paramhash>_extra/`. Their ledger rows are told apart by the query file's
+hash, like any other query file.
+
 The ledger is tracked, under `artifacts/`, because `results/` is gitignored and the ledger is the one output of a run
 that must outlive it: it is the record a reader, and later the dashboard, checks a published number against.
