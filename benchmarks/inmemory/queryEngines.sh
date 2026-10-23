@@ -149,6 +149,15 @@ function execute_queries () {
                     -sortcols "time" -indexon "sym" \
                     -queryfile ./artifacts/queries/inmemory/kdb.psv
             fi
+            # The same qSQL on trade and quote stored in DuckDB and linked back as q tables.
+            if solution_enabled "qlite (DuckDB)" && [[ "${s}" == "${THREAD_NRS[0]}" ]]; then
+                local QBIN_DUCKDB_PATH
+                QBIN_DUCKDB_PATH=$(bash ./src/qengine/qbin.sh duckdb)
+                run_solution "qlite (DuckDB)" "${QBIN_DUCKDB_PATH}" ./src/qengine/runQueries.lite.q \
+                    ${COMMONPARAMS} -db ${DB_DIR}/splayed -format splayed -store duckdb \
+                    -sortcols "time" -indexon "sym" \
+                    -queryfile ./artifacts/queries/inmemory/kdb.psv
+            fi
         fi
         if engine_enabled l; then
             # l (lv1.sh) is a q implementation, so it shares the qlite runner and database.

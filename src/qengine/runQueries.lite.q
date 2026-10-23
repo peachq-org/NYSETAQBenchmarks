@@ -20,7 +20,7 @@
 USAGE: "usage: q ", string[.z.f], " [-help] -db DB -paramdir DIR -queryfile FILE -querymeta FILE",
   " -storage_backend memory [-format (PSV|SPLAYED)] [-engine q-sql] [-sortcols COLS] [-indexon COL]",
   " [-date DATE] [-queryOutputDir DIR] [-result FILE] [-statsDir DIR] [-tags TAGS]",
-  " [-instrument (single|multi|all)] [-idx FILTER] [-debug]\n\n",
+  " [-instrument (single|multi|all)] [-idx FILTER] [-store duckdb] [-debug]\n\n",
   "Loads one day of NYSE TAQ data into memory and runs the benchmark queries\n",
   "against it, writing the contract's per-query result PSV. -db is a splayed kdb\n",
   "database from src/qengine/psvToSplayed.q, or a directory of PSV files with\n",
@@ -39,7 +39,7 @@ if[count missing: MANDATORY except ko;
   -2 "Run with -help for usage.";
   exit 1]
 
-ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`statsDir`tags`instrument`idx`debug
+ALLOWED: MANDATORY,`format`engine`sortcols`indexon`date`queryOutputDir`result`statsDir`tags`instrument`idx`store`debug
 if[count unknown: ko except ALLOWED;
   -2 "Unknown parameter(s): ", ", " sv string unknown;
   -2 "Run with -help for usage.";
@@ -312,6 +312,19 @@ Device: first system "./src/resolve_device.sh ", DB
 loadIntoMemory[DB; DATE; SORTCOLS; getAttrib[INDEXON; SORTCOLS]]
 
 if[`statsDir in ko; captureTableStats hsym `$opt `statsDir]
+
+// -store duckdb: trade and quote move into an in-memory DuckDB through peachq's
+// :pq:duckdb: handle and their names rebind to the linked tables, so the same
+// qSQL text runs with whatever of it DuckDB can answer pushed down.
+STORE: lower opt `store
+if[not STORE in ("";"duckdb"); -2 "Unsupported -store ", STORE, " (expected duckdb)"; exit 2]
+storeInDuckdb: {[tNames]
+  DUCKH:: hopen (`:pq:duckdb:taq; ":memory:");
+  {[n] p: `$":pq:duckdb:taq:", string[n], "/"; p set value n; n set get p} each tNames;}
+if[STORE ~ "duckdb";
+  r: timed[storeInDuckdb; enlist `trade`quote];
+  setupRow[-4; "store trade and quote in duckdb"; statusOf r; r 0; r 1; r 2; NYI];
+  if[count r 3; -2 "could not store the tables in DuckDB: ", r 3; exit 5]]
 
 -1 "Loading parameters from ", 1_string PARAMDIR
 // A parameter this implementation cannot build must stay unset, so the queries
