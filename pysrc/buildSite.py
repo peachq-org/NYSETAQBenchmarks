@@ -79,6 +79,9 @@ def main():
         shutil.copy2(root / "artifacts/queries/inmemory" / f, out / "artifacts/queries/inmemory/")
     shutil.copy2(root / "LICENSE", out / "LICENSE")
     (out / "index.html").write_text(rewrite((root / "index.html").read_text(), a.size, a.title))
+    # One thread is the count every solution ran at, the q implementations being single-threaded.
+    js = out / "assets" / "js" / "benchmark.js"
+    js.write_text(sub(js.read_text(), "const default_threads = '4';", "const default_threads = '1';"))
     print(f"wrote {out}")
 
 
