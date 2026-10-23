@@ -241,8 +241,8 @@ Tips for narrowing a run while iterating:
   shared `sym_enum` is applied to all three tables; when truthy (`true`/`1`/`yes`)
   each table gets its own ENUM built from only its distinct symbols.
 - To verify engines return equivalent results, pass `-q/--query-output-dir` to
-  persist per-engine outputs, then compare two engines with
-  `q src/compareOutput.q -querymeta ... -queryoutput1 <dirA> -queryoutput2 <dirB>`.
+  persist per-engine outputs, then check every solution against the consensus with
+  `./benchmarks/inmemory/verify.sh -q <outputdir> -r <resultdir> -p <paramdir> -d <date>`.
   See the README's *Verifying Query Output Correctness* section.
 
 ## Reading the results

@@ -750,50 +750,68 @@ point. Rather than renumbering by hand, use
 ### Verifying Query Output Correctness
 
 A benchmark is only meaningful if every engine computes the **same result** for
-each query. This is a hard requirement: a query added to a new engine must return
-output equivalent to the existing engines (same rows, columns, and values), so
-that timings compare like for like. For integer and categorical/enum columns
-(symbols, dates, times, etc.) equivalence is **exact** — any difference, in even
-a single cell, fails the verification. Floating-point columns are the tricky
-exception: engines may legitimately differ in the last bits due to summation
-order and intermediate precision, so they are compared within a small tolerance
-(`FLOATDIFFTHREASHOLD`, see below) rather than bit-for-bit.
+each query, so a timing is publishable only once its answers are verified. The
+rule is written once, in [docs/verification.md](./docs/verification.md): every
+output is reduced to one canonical form (times as nanoseconds since midnight,
+every null spelling one null, text trimmed, integers widened, rows sorted),
+floats agree within a **relative** 1e-6 plus the rounding their printing
+implies, and the reference is not an engine but the **consensus**: the answer
+at least three independent implementations share, and more share than
+disagree. A query with no such majority is `unresolved`, never guessed.
 
-To check this, persist each engine's query outputs and compare them:
+**When it is required.** Run it after any change of engine version, of a query
+file, or of the parameters, and before publishing — the ledger it writes is the
+record that a published (solution, engine version) was checked. It is a separate
+pass and never part of a timed run.
 
 1. **Persist the outputs.** Both driver scripts
    ([queryEngines.sh](./benchmarks/inmemory/queryEngines.sh) and
    [kdbAttributes.sh](./benchmarks/inmemory/kdbAttributes.sh)) accept
    `-q, --query-output-dir <dir>`. When given, each solution writes its results as
-   `queryoutput_<idx>.csv` into a per-solution subdirectory of `<dir>`. The CSVs are
-   in kdb+-loadable format (see the `write_csv` requirement in
-   [Adding a New Engine](#adding-a-new-python-based-in-memory-query-engine)).
+   `queryoutput_<idx>.csv` into a per-solution subdirectory of `<dir>`, named after
+   the **solution** with every character outside `[a-zA-Z0-9._-]` replaced by `_`
+   (`DuckDB (Index)` becomes `DuckDB_Index_`). The files may be compressed to
+   `queryoutput_<idx>.csv.zst` afterwards; the verifier reads either.
 
    ```bash
-   ./benchmarks/inmemory/queryEngines.sh --db-dir ... --param-dir ... --datadate ... \
-       --query-output-dir ./results/inmemory/output
+   ./benchmarks/inmemory/queryEngines.sh --db-dir ... --param-dir ./artifacts/parameters/${SIZE} \
+       --datadate ${DATADATE} -r ./results/inmemory/${SIZE}/run -q ./results/inmemory/${SIZE}/output
    ```
 
-2. **Compare two engines.** Point [src/compareOutput.q](./src/compareOutput.q) at
-   the two per-engine output directories. For every query in the metadata file it
-   checks row count, column count, column names, and then compares content
-   cell-by-cell, logging the first mismatch per column. Integer and
-   categorical/enum columns must match exactly — any difference is a failure.
-   Only floats get slack: they compare within `FLOATDIFFTHREASHOLD` (and char
-   columns via `like`), since floating-point results can drift slightly across
-   engines:
+2. **Verify.** Point [verify.sh](./benchmarks/inmemory/verify.sh) at the same
+   directories. It takes the drivers' option names; `-r` may be repeated when the
+   solutions were run separately, and supplies each solution's name and engine
+   version from its `stats.yaml`:
 
    ```bash
-   q src/compareOutput.q -querymeta ./artifacts/queries/inmemory/querymeta.psv \
-       -queryoutput1 ./results/inmemory/output/KDB-X \
-       -queryoutput2 ./results/inmemory/output/Polars_Eager_
+   PYRUN=/path/to/venv/bin/python ./benchmarks/inmemory/verify.sh \
+       -q ./results/inmemory/${SIZE}/output -r ./results/inmemory/${SIZE}/run \
+       -p ./artifacts/parameters/${SIZE} -d ${DATADATE}
    ```
 
-   The subdirectory is named after the **solution**, with every character outside
-   `[a-zA-Z0-9._-]` replaced by `_` — so `DuckDB (Index)` becomes
-   `DuckDB_Index_` and `Polars (Lazy)` becomes `Polars_Lazy_`.
+   It needs Python with `polars` and `pyyaml` (`PYRUN`, else `uv run` with the
+   script's inline dependencies) and no KX product. It prints one line per query
+   naming every solution that is not `ok`, and a verdict count per solution, and
+   exits `0` only when every solution is `ok` or `not-written` on every query.
+   `-i` restricts it to some queries (`42`, `32,42,50`, `40-44`), and
+   `--reference <solution>` compares against one solution instead of the
+   consensus, for a quick pairwise look (it records nothing).
 
-   It exits `0` when every query matches; otherwise it logs the differences and
-   continues per query. Pass `-idx` to restrict the comparison to specific query
-   indices — single (`42`), list (`32,42,50`) or range (`40-44`) — and `-debug`
-   to keep the process alive after comparison for investigation of differences.
+   It writes:
+
+   - `<-r dir>/verification/verdicts.tsv`: tab-separated, header
+     `solution	idx	verdict`, one row per (solution, query), the solution named
+     exactly as in `results.psv`; the verdict is one of `ok`, `order-only`,
+     `value-diff`, `shape-diff`, `missing`, `not-written`, `unresolved`
+     ([meanings](./docs/verification.md#5-verdicts)). `verdicts.psv` beside it
+     adds the evidence for each.
+   - the consensus golden, as zstd Parquet under `DATA/verification/`.
+   - one row per solution in
+     [artifacts/verification/ledger.psv](./artifacts/verification/ledger.psv):
+     the engine version, the hashes of its query file and of the parameter
+     directory, the data date and size, and its pass/fail/unresolved counts.
+     Commit it with the results it verifies.
+
+[src/compareOutput.q](./src/compareOutput.q), the original two-directory
+comparator, still works for KDB-X users; it compares against one engine with an
+absolute float tolerance, and its verdicts are not recorded.

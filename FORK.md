@@ -44,6 +44,21 @@ No vendor is privileged here, including peachq.
 | 21 | `tools/publish.sh` + `pysrc/publishData.py`: stage results for peachq.org/benchmark (a summary `data.js` and the drill-down below) and upload them to `/data/benchmark/`; only `ok` verdicts from verify.sh are published, and `GO=1` refuses without a verdicts file | The fork's results need a home that is not benchmark.kx.com; publishing an unverified timing would rank a wrong answer | No |
 | 22 | `pysrc/buildSite.py` re-themes the drill-down to peachq.org's tokens and font stacks, drops the remaining kx.com link and the consent-manager handler, and asserts no KX mark or palette colour survives in the built copy | A fork-hosted copy must not look like a KX property | No |
 | 23 | `CNAME` (`benchmark.kx.com`) removed | It names KX's domain; this fork does not publish through GitHub Pages | No |
+| 24 | `duckdb.psv` idx 24–29 name pivot columns by the pivot value alone (`USING AVG(liqWMid)`, no `AS avgLiqWMid`) | DuckDB answered `H_avgLiqWMid` where every other engine answers `H`, so six queries could never match. A translation that names columns differently is fixed in the translation, not taught to the comparator | Yes, standalone |
+| 25 | Output verification by consensus: `benchmarks/inmemory/verify.sh` (`pysrc/verify/`), its rule in `docs/verification.md`, its record in `artifacts/verification/ledger.psv` | `src/compareOutput.q` needs KDB-X (2 h for 9 solutions on `tiny` through the peachq shim), trusts one engine — DuckDB was wrong twice in one week — and its absolute 5e-5 float tolerance and order-sensitivity reported mostly noise. Nothing recorded that a published result was ever checked | Yes, in principle: it needs no KX product, and `compareOutput.q` stays |
+
+### Verification rules
+
+- **Consensus reference, one canonical form.** No engine is the reference: a query's golden is the answer at least
+  three independent implementations share, and more share than disagree, else `unresolved`. Every output is reduced
+  to the one canonical form of `docs/verification.md` before it is compared, and a translation that names its
+  columns differently is fixed in the translation (divergence 24), not in the comparator.
+- **Relative tolerance with a floor.** Floats agree within 1e-6 relative (floor 1e-9) plus the rounding their
+  printing implies; a looser float32 allowance applies only where `artifacts/verification/float32.psv` lists a
+  measurement for it.
+- **Verification is separate and recorded.** It never runs inside a timed run, and every verified (solution, engine
+  version, query file, parameters, date, size) is a row in `artifacts/verification/ledger.psv`; a published number
+  without one is unverified.
 
 ### Development-machine results are not published
 
