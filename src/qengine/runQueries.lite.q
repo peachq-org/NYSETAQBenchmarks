@@ -255,6 +255,11 @@ tryPersistOutput: {[dir; res; idx]
   e: @[{[a] persistOutput . a; ""}; (dir; res; idx); {x}];
   if[count e; -2 "[", idx, "] could not persist the query output: ", e];}
 
+// A query cannot be interrupted in-process, so a run 1 past max(30s, 5x the median run 1
+// so far) is reported as "timeout" with its one timing, and its runs 2 and 3 are skipped.
+RUN1: `timespan$()
+slowRun1: {[t] t > 0D00:00:30 | 5 * $[count RUN1; med RUN1; 0D]}
+
 // A base filter (e.g. "single") matches its frequency variants too.
 skipReason: {[idx; querytags; instrument]
   if["#" ~ first idx; :"skip"];
@@ -286,6 +291,9 @@ runQuery: {[idx; querytags; instrument; query]
   -1 "[", idx, "]   Shape of the result: ", $[.Q.qt res; string[count res], " x ", string count cols res; "not a table"];
   tryPersistOutput[QUERYOUTPUT; res; idx];
   res: ();
+  if[slowRun1 first ts; -1 "[", idx, "]   timeout: run 1 took ", (string first ts), ", runs 2 and 3 skipped";
+    writeRes[idx; query; "timeout"; ts; 0Nj; io; NYI]; :()];
+  RUN1,: first ts;
 
   GC[];
   s: .z.p;
