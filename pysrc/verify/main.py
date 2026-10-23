@@ -40,7 +40,7 @@ def parse_idx(spec: str) -> set:
 
 def read_psv(path: Path) -> list:
     with open(path, newline="") as f:
-        return list(csv.DictReader(f, delimiter="|"))
+        return list(csv.DictReader(f, delimiter="|", quoting=csv.QUOTE_NONE))
 
 
 def sha(data: bytes) -> str:
@@ -187,10 +187,8 @@ def record(ledger: Path, panel: list, rows: list, paramhash: str, datadate: str,
                  "notwritten": mine.count(NOT_WRITTEN), "queries": queries, "commit": commit}
         kept = [r for r in kept if tuple(r[k] for k in key) != tuple(str(entry[k]) for k in key)] + [entry]
     ledger.parent.mkdir(parents=True, exist_ok=True)
-    with open(ledger, "w", newline="") as f:
-        w = csv.DictWriter(f, LEDGER_COLUMNS, delimiter="|", lineterminator="\n")
-        w.writeheader()
-        w.writerows(kept)
+    ledger.write_text("".join("|".join(str(r[c]) for c in LEDGER_COLUMNS) + "\n"
+                              for r in [dict(zip(LEDGER_COLUMNS, LEDGER_COLUMNS))] + kept))
     print(f"ledger: {len(panel)} row(s) in {ledger}")
 
 
