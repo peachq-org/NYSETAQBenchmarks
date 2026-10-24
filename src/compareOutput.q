@@ -52,26 +52,19 @@ queryoutput2: hsym `$o`queryoutput2
 FLOATDIFFTHREASHOLD: 0.00005
 
 
-tradeTypes: `time`ex`sym`cond`size`price`stop`corr`seq`tradeId`source`tradeReportingFacility`participantTimestamp`tradeReportingFacilityTRFTimestamp`tradeThroughExemptIndicator!"ncsseeshijcsnnb"
-quoteTypes: `time`ex`sym`bid`bsize`ask`asize`cond`seq`nationalBBOIndicator`finraBBOIndicator`finraADFMPIDIndicator`corr`source`retailInterestIndicator`shortSaleRestrictionIndicator`LULDBBOIndicator`SIPGeneratedMessageIdentifier`nationalBBOLULDIndicator`participantTimestamp`FINRAADFTimestamp`FINRAADFMarketParticipantQuoteIndicator`securityStatusIndicator!"ncseieiciccccccccccnncc"
+tradeTypes: `time`ex`sym`cond`size`price`stop`corr`seq`tradeId`source`tradeReportingFacility`participantTimestamp`tradeReportingFacilityTRFTimestamp`tradeThroughExemptIndicator!"ncssffshijcsnnb"
+quoteTypes: `time`ex`sym`bid`bsize`ask`asize`cond`seq`nationalBBOIndicator`finraBBOIndicator`finraADFMPIDIndicator`corr`source`retailInterestIndicator`shortSaleRestrictionIndicator`LULDBBOIndicator`SIPGeneratedMessageIdentifier`nationalBBOLULDIndicator`participantTimestamp`FINRAADFTimestamp`FINRAADFMarketParticipantQuoteIndicator`securityStatusIndicator!"ncsfificiccccccccccnncc"
 / The source kdb+ schema and Parquet schema differ only in acronym casing.
 quoteTypes[`finraADFMpidIndicator]: first "c";
 types: tradeTypes, quoteTypes, ([mid: "f"; avgLiqWMid: "f"]),
- ([avgSpread: "f"; avgWeightedSpread: "f"; devSpread: "f"; maxSpread: "e"; minSpread: "e"]),
+ ([avgSpread: "f"; avgWeightedSpread: "f"; devSpread: "f"; maxSpread: "f"; minSpread: "f"]),
  ([weightedBidPrice: "f"; weightedOfferPrice: "f"]),
  ([movingLiqWMid: "f"; movingsize: "f"; movingvwap: "f"; tag: "s"; seqDecr: "i"]),
  ([timeBucket: "s"; cnt: "j"]),
- ([o: "e"; h: "e"; l: "e"; c: "e"; s: "e"]),
+ ([o: "f"; h: "f"; l: "f"; c: "f"; s: "f"]),
  ([minute: "u"; inbal: "f"]),
  ([wsumAsk: "f"; wsumBid: "f"; sdevasksize: "f"; sdevbid: "f"; corPrice: "f"; corSize: "f"]),
  ([pricegroup: "i"; FirstTime: "n"; LastTime: "n"; medMidSize: "f"; medSize: "f"; quotecond: "c"; quoteex: "c"])
-
-/ Fractional-share support changed trade size (and aggregates derived from it)
-/ from int32 to float32. Keep both FINRA MPID spellings because the kdb+ source
-/ schema and the Parquet schema currently differ only in acronym casing.
-tradeTypes[`size]: first "e";
-types[`size]: first "e";
-types[`s]: first "e";
 
 / Rayforce persists timespans as nanosecond I64 values and writes booleans as
 / true/false, while q CSV writes temporal text and 0/1. Read these columns as

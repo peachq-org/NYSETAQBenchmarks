@@ -48,15 +48,17 @@ Two float cells `a` and `b` agree when both are null, or they are equal, or
   in [0.0012345, 0.0012355]; read as exact, every q output below about 0.5 would fail a relative test. Shorter and
   exponent forms carry no slack: they are what shortest-round-trip printers (DuckDB, Polars, Pandas, chDB) write, and
   `26.64` from one of those means exactly the double nearest 26.64.
-- **The float32 allowance.** TAQ prices and sizes are `real`s (float32), and some engines keep intermediate results
-  in float32. Where that is measured, and only there, a column is compared at a looser `rtol`, listed with its
-  evidence in [`artifacts/verification/float32.psv`](../artifacts/verification/float32.psv) (`idx|column|rtol|evidence`).
-  The allowance is **1e-5**: the largest spread measured on `tiny` (2026-07-01) between engines whose answers agree on
-  everything else is 6.5e-6 (DuckDB `avgWeightedSpread`, idx 41–42, where `ask - bid` is evaluated in REAL), and the
-  next largest 1.1e-6 (Polars Lazy `size`, idx 62). A row is added only with a measurement; a rise above 1e-5 is a
-  defect to explain, not an allowance to widen. It does not cover a different answer: Polars' `dev` of the spread
-  was 3.3e-5 out on idx 36 and 41% out on idx 41 because it was the sample deviation, and the fix was the
-  translation (`FORK.md` divergence 26), not an allowance.
+- **The float32 allowance.** This fork stores TAQ prices and sizes as float64 (`FORK.md` divergence 31), where KX's
+  upstream stores them as `real`s (float32). An engine that keeps an intermediate result in float32 can still differ
+  from the double engines in the last digits; where that is measured, and only there, a column is compared at a looser
+  `rtol`, listed with its evidence in [`artifacts/verification/float32.psv`](../artifacts/verification/float32.psv)
+  (`idx|column|rtol|evidence`). The table is empty: its three rows (idx 41–42 `avgWeightedSpread`, DuckDB's
+  `ask - bid` in REAL, 6.5e-6; idx 62 `size`, Polars Lazy's sum of a REAL, 1.1e-6) were measured on float32 data and
+  retired when the data became float64, and `tiny` (2026-07-01) and the fixture (2026-04-01) verify without them. A
+  row is added only with a measurement, at no more than **1e-5**; a rise above that is a defect to explain, not an
+  allowance to widen. It does not cover a different answer: Polars' `dev` of the spread was 3.3e-5 out on idx 36 and
+  41% out on idx 41 because it was the sample deviation, and the fix was the translation (`FORK.md` divergence 26),
+  not an allowance.
 
 Rows that tie on every non-float column are sorted by their floats, and two engines' floats can order such a tie
 differently while agreeing within tolerance. Where the sorted tables differ only inside such ties, the tied rows are
@@ -67,8 +69,8 @@ paired one to one, greedily, on their float columns; the outputs agree if every 
 For a `sort`-tagged query the candidate's emitted order is compared with the golden's. Rows of the golden that tie
 on the query's `sortby` keys (`querymeta.psv`, up to and including the first float key) may come in any order: a
 float key is known only within tolerance, so neither is the order a later key gives inside it. idx 14–15 sort on
-`mid` (descending) then `time`; peachq evaluates `mid` from `real`s, and two mids equal in double precision can
-differ in float32, so its order inside a mid tie is not the double engines' order and is not wrong.
+`mid` (descending) then `time`, so the order inside a tie on `mid`, as each engine rounds it, is not part of the
+answer.
 
 If the emitted order differs beyond that but the sorted tables agree, the verdict is `order-only`; this is the only
 query class where `order-only` can occur.

@@ -35,7 +35,7 @@ system "mkdir -p ", DST;
 // This also makes `trade`/`quote` date-partitioned tables with a virtual `date`.
 $[FORMAT ~ `SPLAYED; [system "l src/loadSplayedDataset.q"; loadSplayedDataset[o `db; D]]; system "l ", 1_string DB];
 
-// q's default display precision is not round-trip safe for 32-bit floats.
+// q's default display precision is not round-trip safe for floats.
 // CSV serialization honors `P`, so use full precision to keep distinct trade
 // prices distinct after Rayforce parses the bridge files.
 system "P 17";
