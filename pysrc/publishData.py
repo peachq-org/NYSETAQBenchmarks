@@ -48,6 +48,8 @@ data.js schema::
       baseline:  "DuckDB (Index)", the solution id ratios are taken against
       target:    the solution that is 100 MPH, today the baseline
       baselineVersion: the target's engine version, e.g. "2.0.0"
+      prices:    "float64" or "float32", how the data stores trade price and size and quote bid and ask
+      dataNote:  one line for the page to print under the results, saying how this data differs from KX's
       solutions: [{id, label, engine, version, threads: [1, 4], language, data, note}]
       queries:   [{idx, description, tags: [..]}], in idx order
       times:     {<solution id>: {<threads>: [warm ms or null, one per entry of queries]}}
@@ -55,13 +57,15 @@ data.js schema::
       mph:       {<solution id>: {<threads>: {mph, mphMedian, answered, failed, total}}}
       history:   every row of the history file, oldest first:
                  [{date, solution, version, binarySha256, target, baselineVersion,
-                   threads, size, datadate, mph, mphMedian, answered, failed}]
+                   threads, size, datadate, prices, mph, mphMedian, answered, failed}]
     }
 
 answered counts the queries with a verified time, of total; failed counts the
 ones charged the penalty. A history series is one (solution, threads, target,
 baselineVersion, size): a new target version starts a new series, never joined
-to the old one.
+to the old one. A change of ``prices`` (float32 before 2026-10-24, float64 since:
+FORK.md divergence 31) stays in its series, and the page marks where it changes.
+``prices`` is read from the target's stats.yaml, the type it loaded trade.price as.
 
 A solution id is its results.psv name, so verdicts, the drill-down and the
 page all key on one string. Warm ms is min(run2, run3). Setup times are run 1
@@ -93,8 +97,12 @@ QUERYMETA = ROOT / "artifacts" / "queries" / "inmemory" / "querymeta.psv"
 BASELINE = "DuckDB (Index)"
 HISTORY = ROOT / "artifacts" / "publish" / "history.psv"
 HISTORY_FIELDS = ("date", "solution", "version", "binarySha256", "target", "baselineVersion", "threads", "size",
-                  "datadate", "mph", "mphMedian", "answered", "failed")
-HISTORY_KEY = ("date", "solution", "threads", "binarySha256", "target", "baselineVersion", "size")
+                  "datadate", "prices", "mph", "mphMedian", "answered", "failed")
+HISTORY_KEY = ("date", "solution", "threads", "binarySha256", "target", "baselineVersion", "size", "prices")
+PRICE_TYPES = {"float": "float64", "double": "float64", "float64": "float64", "nullable(float64)": "float64",
+               "real": "float32", "float32": "float32", "nullable(float32)": "float32"}
+DATA_NOTES = {"float64": "prices and sizes stored as float64; KX's upstream uses float32 "
+                         "(KxSystems/NYSETAQBenchmarks#25)"}
 PAGE_SOLUTIONS = ("peachq", "peachq (via DuckDB)", "DuckDB (Index)", "l", "Rayforce", "Rayforce Parted",
                   "Polars (Lazy)", "Pandas")
 RENAMED = {"qlite": "peachq", "qlite (DuckDB)": "peachq (via DuckDB)"}
@@ -211,6 +219,15 @@ def version_of(stats_path):
     return inner.group(1) if inner else raw
 
 
+def prices_of(stats_path):
+    """float64 or float32: how the solution loaded trade.price. DuckDB's FLOAT is its 32-bit REAL, q's float is 64."""
+    found = re.search(r"^\s*- name: price\s*\n\s*type:\s*(\S.*?)\s*$", stats_path.read_text(), re.M)
+    if not found:
+        return ""
+    raw = found.group(1).strip("'\"")
+    return "float32" if raw == "FLOAT" else PRICE_TYPES.get(raw.lower(), "")
+
+
 def stats_yaml_of(run, name):
     src = next((p for n, p in solution_stats_dirs(run).items() if RENAMED.get(n, n) == name), None)
     return src / "stats.yaml" if src is not None else None
@@ -319,6 +336,16 @@ def curate(summary, page):
                    baselineVersion=next(s["version"] for s in summary["solutions"] if s["id"] == BASELINE))
 
 
+def stamp_prices(summary, chosen):
+    """The data's price type, read from the target's runs; runs that loaded different types are refused."""
+    found = {prices_of(stats) for (name, _), run in chosen.items() if name == BASELINE
+             for stats in [stats_yaml_of(run, name)] if stats is not None}
+    if len(found) > 1:
+        raise SystemExit(f"publishData: the {BASELINE} runs loaded prices as {sorted(found)}; publish one data set")
+    summary["prices"] = found.pop() if found else ""
+    summary["dataNote"] = DATA_NOTES.get(summary["prices"], "")
+
+
 def history_rows(summary, chosen, envs):
     """One row per (solution, threads), each version read from the run that measured that thread count."""
     rows = []
@@ -334,7 +361,7 @@ def history_rows(summary, chosen, envs):
                          "binarySha256": binary_sha256_of(stats) if stats else "",
                          "target": summary["target"], "baselineVersion": (version_of(target) if target else None) or "",
                          "threads": int(threads), "size": summary["size"], "datadate": summary["datadate"],
-                         "mph": speed["mph"], "mphMedian": speed["mphMedian"], "answered": speed["answered"],
+                         "prices": summary["prices"], "mph": speed["mph"], "mphMedian": speed["mphMedian"], "answered": speed["answered"],
                          "failed": speed["failed"]})
     return rows
 
@@ -344,6 +371,7 @@ def read_history(path):
         return []
     _, rows = read_psv(path)
     for r in rows:
+        r.setdefault("prices", "")
         r.update({k: int(r[k]) for k in ("threads", "answered", "failed")},
                  **{k: float(r[k]) for k in ("mph", "mphMedian")})
     return rows
@@ -366,12 +394,12 @@ def record_history(path, new_rows):
     return rows
 
 
-def build_full(stage, size, python):
+def build_full(stage, size, python, note=""):
     generated = stage / "data.generated.js"
     subprocess.run([python, str(ROOT / "pysrc/convertToJSFormat.py"), str(stage / "results"), str(generated),
                     "--mappings", str(ROOT / "results/mappings.yaml"), "--include-dev-machines"], check=True)
-    subprocess.run([python, str(ROOT / "pysrc/buildSite.py"), size, str(stage / "full"), "--data", str(generated)],
-                   check=True)
+    subprocess.run([python, str(ROOT / "pysrc/buildSite.py"), size, str(stage / "full"), "--data", str(generated),
+                    "--note", note], check=True)
 
 
 def main():
@@ -396,16 +424,19 @@ def main():
     kept = stage_results(runs, chosen, verdicts, a.stage_dir / "results")
     summary = summarise(runs, chosen, kept, a.size, verdicts is not None)
     curate(summary, {name.strip() for name in a.page_solutions.split(",") if name.strip()})
+    stamp_prices(summary, chosen)
     if verdicts is not None:
         summary["history"] = record_history(a.history, history_rows(summary, chosen, dict(runs)))
     else:
         summary["history"] = read_history(a.history)
     (a.stage_dir / "data.js").write_text("window.PEACHQ_BENCHMARK = "
                                          + json.dumps(summary, ensure_ascii=False, separators=(",", ":")) + ";\n")
-    build_full(a.stage_dir, a.size, sys.executable)
+    build_full(a.stage_dir, a.size, sys.executable, summary["dataNote"])
     counts = [f"{name}@{threads} {sum(t is not None for t in warm)}/{len(summary['queries'])}"
               for name, by_threads in summary["times"].items() for threads, warm in by_threads.items()]
     print(f"wrote {a.stage_dir}/data.js ({'verified' if verdicts is not None else 'UNVERIFIED'}): " + ", ".join(counts))
+    if summary["dataNote"]:
+        print(f"note: {summary['dataNote']}")
     print(f"{'solution':<22}threads      MPH  median MPH  answered  ({summary['target']} "
           f"{summary['baselineVersion']} = 100 MPH)")
     for name, by_threads in summary["mph"].items():

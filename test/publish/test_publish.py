@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "pysrc"))
-from publishData import speeds  # noqa: E402
+from publishData import prices_of, speeds  # noqa: E402
 HEADER = ("solution|storagebackend|compparam|threadcount|runner|engine|format|indexon|idx|query|status|"
           "run1timeNS|run2timeNS|run3timeNS|run3memKB|run1ioKB|run2ioKB|run3ioKB|ressizeKB")
 ENVIRONMENT = """test date: "2026-10-23"
@@ -32,6 +32,9 @@ system:
 """
 KX_MARKS = ("kx-logo", "GTM-", "googletagmanager", "©", "KX®", "kx.com", "OneTrust", "Cookie Settings",
             "#FFCB22", "#D5A600", "#2159B2", "#3272D9", "#A8C5F0")
+
+
+PRICE_COLUMN = "trade:\n  columns:\n  - name: price\n    type: {}\n    attr:\n"
 
 
 def row(solution, idx, status, ns, runner="Python", engine="duckdb_con"):
@@ -66,6 +69,8 @@ class PublishTests(unittest.TestCase):
             (run / folder / "stats.yaml").write_text(f"solution: {name}\nproprietary: 'no'\nengineversion: 1.0\n")
         with (run / "qlite" / "stats.yaml").open("a") as fh:
             fh.write(f"binarysha256: {'ab' * 32}\n")
+        with (run / "DuckDB_Index_" / "stats.yaml").open("a") as fh:
+            fh.write(PRICE_COLUMN.format("DOUBLE"))
         cls.verdicts = cls.temp / "verdicts.tsv"
         cls.verdicts.write_text("solution\tidx\tverdict\n"
                                 "DuckDB (Index)\t1\tok\nDuckDB (Index)\t2\tok\nDuckDB (Index)\t3\tok\n"
@@ -111,10 +116,10 @@ class PublishTests(unittest.TestCase):
         rows = load_js(self.temp / "stage-again/data.js", "window.PEACHQ_BENCHMARK =")["history"]
         self.assertEqual(len(rows), 1)
         self.assertEqual({k: rows[0][k] for k in ("date", "solution", "binarySha256", "target", "baselineVersion",
-                                                  "threads", "mph", "answered", "failed")},
+                                                  "threads", "prices", "mph", "answered", "failed")},
                          {"date": "2026-10-23", "solution": "peachq", "binarySha256": "ab" * 32,
-                          "target": "DuckDB (Index)", "baselineVersion": "1.0", "threads": 1, "mph": 200.0,
-                          "answered": 1, "failed": 0})
+                          "target": "DuckDB (Index)", "baselineVersion": "1.0", "threads": 1, "prices": "float64",
+                          "mph": 200.0, "answered": 1, "failed": 0})
 
         bumped = self.temp / "bumped"
         shutil.copytree(self.temp / "results", bumped)
@@ -129,6 +134,32 @@ class PublishTests(unittest.TestCase):
         unverified = self.publish(bumped, self.temp / "stage-unverified", "--unverified")
         self.assertEqual(unverified.returncode, 0, unverified.stderr)
         self.assertEqual(len(self.history.read_text().splitlines()), 3)
+
+    def test_the_data_note_follows_the_loaded_price_type(self):
+        data = load_js(self.stage / "data.js", "window.PEACHQ_BENCHMARK =")
+        self.assertEqual(data["prices"], "float64")
+        self.assertIn("KxSystems/NYSETAQBenchmarks#25", data["dataNote"])
+        self.assertIn("note: prices and sizes stored as float64", self.out.stdout)
+        self.assertIn("Prices and sizes stored as float64; KX&#x27;s upstream uses float32",
+                      (self.stage / "full/index.html").read_text())
+
+        reals = self.temp / "reals"
+        shutil.copytree(self.temp / "results", reals)
+        stats = reals / "run/DuckDB_Index_/stats.yaml"
+        stats.write_text(stats.read_text().replace("type: DOUBLE", "type: FLOAT"))
+        done = self.publish(reals, self.temp / "stage-reals", "--unverified")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        data = load_js(self.temp / "stage-reals/data.js", "window.PEACHQ_BENCHMARK =")
+        self.assertEqual((data["prices"], data["dataNote"]), ("float32", ""))
+
+        mixed = self.temp / "mixed"
+        shutil.copytree(self.temp / "results", mixed / "a")
+        shutil.copytree(reals, mixed / "b")
+        psv = mixed / "b/run/results.psv"
+        psv.write_text(psv.read_text().replace("DuckDB (Index)|memory|nyi|1|", "DuckDB (Index)|memory|nyi|4|"))
+        done = self.publish(mixed, self.temp / "stage-mixed", "--unverified")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("publish one data set", done.stderr)
 
     def test_drill_down_drops_the_same_cells(self):
         generated = (self.stage / "full/results/inmemory/tiny/data.generated.js").read_text()
@@ -179,6 +210,19 @@ class PublishTests(unittest.TestCase):
         self.assertIn("github.com/KxSystems/NYSETAQBenchmarks", html)
         self.assertTrue(re.search(r"--chart-scale-1: #f28b57", (self.stage / "full/assets/css/benchmark.css")
                                   .read_text()))
+
+
+class PriceTypeTests(unittest.TestCase):
+    def test_each_engine_spelling(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "stats.yaml"
+            for raw, want in (("FLOAT", "float32"), ("DOUBLE", "float64"), ("real", "float32"), ("float", "float64"),
+                              ("Float32", "float32"), ("Float64", "float64"), ("float64", "float64"),
+                              ("Nullable(Float32)", "float32"), ("'Nullable(Float64)'", "float64")):
+                path.write_text("solution: x\n" + PRICE_COLUMN.format(raw))
+                self.assertEqual(prices_of(path), want, raw)
+            path.write_text("solution: x\n")
+            self.assertEqual(prices_of(path), "")
 
 
 class SpeedTests(unittest.TestCase):
