@@ -65,7 +65,8 @@ ones charged the penalty. A history series is one (solution, threads, target,
 baselineVersion, size): a new target version starts a new series, never joined
 to the old one. A change of ``prices`` (float32 before 2026-10-24, float64 since:
 FORK.md divergence 31) stays in its series, and the page marks where it changes.
-``prices`` is read from the target's stats.yaml, the type it loaded trade.price as.
+``prices`` is read from the runs' stats.yaml, the type each loaded trade.price as; runs that
+disagree are refused.
 
 A solution id is its results.psv name, so verdicts, the drill-down and the
 page all key on one string. Warm ms is min(run2, run3). Setup times are run 1
@@ -337,12 +338,17 @@ def curate(summary, page):
 
 
 def stamp_prices(summary, chosen):
-    """The data's price type, read from the target's runs; runs that loaded different types are refused."""
-    found = {prices_of(stats) for (name, _), run in chosen.items() if name == BASELINE
-             for stats in [stats_yaml_of(run, name)] if stats is not None}
+    """The data's price type, read from every chosen run that records one; a tree of mixed types is refused."""
+    found = {}
+    for (name, threads), run in chosen.items():
+        stats = stats_yaml_of(run, name)
+        if stats is not None and prices_of(stats):
+            found.setdefault(prices_of(stats), []).append(f"{name}@{threads}")
     if len(found) > 1:
-        raise SystemExit(f"publishData: the {BASELINE} runs loaded prices as {sorted(found)}; publish one data set")
-    summary["prices"] = found.pop() if found else ""
+        raise SystemExit("publishData: the runs loaded prices as "
+                         + "; ".join(f"{t} ({', '.join(sorted(who))})" for t, who in sorted(found.items()))
+                         + "; publish one data set")
+    summary["prices"] = next(iter(found), "")
     summary["dataNote"] = DATA_NOTES.get(summary["prices"], "")
 
 

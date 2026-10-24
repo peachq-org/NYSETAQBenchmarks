@@ -153,10 +153,9 @@ class PublishTests(unittest.TestCase):
         self.assertEqual((data["prices"], data["dataNote"]), ("float32", ""))
 
         mixed = self.temp / "mixed"
-        shutil.copytree(self.temp / "results", mixed / "a")
-        shutil.copytree(reals, mixed / "b")
-        psv = mixed / "b/run/results.psv"
-        psv.write_text(psv.read_text().replace("DuckDB (Index)|memory|nyi|1|", "DuckDB (Index)|memory|nyi|4|"))
+        shutil.copytree(self.temp / "results", mixed)
+        with (mixed / "run/qlite/stats.yaml").open("a") as fh:
+            fh.write(PRICE_COLUMN.format("real"))
         done = self.publish(mixed, self.temp / "stage-mixed", "--unverified")
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("publish one data set", done.stderr)

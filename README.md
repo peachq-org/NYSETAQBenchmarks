@@ -535,8 +535,8 @@ again adds nothing (key: run date, solution, threads, binary sha256, target, tar
 The binary sha256 is the `binarysha256` line `queryEngines.sh` appends to the stats.yaml of the q
 binaries it runs (peachq, peachq (via DuckDB), l), empty for runs made before it did. A new
 DuckDB version or target starts a new series, which the page's trend chart never joins to the old.
-`prices` is how the data stored trade price and size and quote bid and ask, read from DuckDB's
-`stats.yaml`: `float32` before 2026-10-24, `float64` since (FORK.md divergence 31). It does not start a
+`prices` is how the data stored trade price and size and quote bid and ask, read from the runs'
+`stats.yaml` (a tree whose runs disagree is refused): `float32` before 2026-10-24, `float64` since (FORK.md divergence 31). It does not start a
 new series; the page marks where it changes and prints `dataNote` with the results.
 
 The `data.js` schema:
