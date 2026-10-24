@@ -66,12 +66,6 @@ types: tradeTypes, quoteTypes, ([mid: "f"; avgLiqWMid: "f"]),
  ([wsumAsk: "f"; wsumBid: "f"; sdevasksize: "f"; sdevbid: "f"; corPrice: "f"; corSize: "f"]),
  ([pricegroup: "i"; FirstTime: "n"; LastTime: "n"; medMidSize: "f"; medSize: "f"; quotecond: "c"; quoteex: "c"])
 
-/ Fractional-share support made trade size (and aggregates derived from it) a
-/ float; this fork stores it as a float64 (FORK.md divergence 31).
-tradeTypes[`size]: first "f";
-types[`size]: first "f";
-types[`s]: first "f";
-
 / Rayforce persists timespans as nanosecond I64 values and writes booleans as
 / true/false, while q CSV writes temporal text and 0/1. Read these columns as
 / strings, then normalize both representations before comparison.
