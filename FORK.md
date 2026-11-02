@@ -51,6 +51,7 @@ No vendor is privileged here, including peachq.
 | 28 | `polars.psv` / `polars_lazy.psv` idx 47–48 `rolling_mean(window_size=20, min_samples=1)` | q `mavg` averages the terms so far over the first items (qdocs `ref/avg.md:95`); Polars answered null for the first 19 rows. idx 49–50 already pass `min_samples=1` | Yes, standalone |
 | 29 | `chdb.psv` idx 20–23, 49–50 divide with `divideOrNull` | 31 quotes of the infrequent instrument have `bsize + asize = 0`; ClickHouse's `0/0` is NaN and NaN poisons `avg`, where q's null is ignored (qdocs `ref/avg.md:24`). The same fix divergence 13 makes for DuckDB with a setting; chDB has no such setting | Yes, standalone |
 | 30 | `duckdb.psv` idx 51–55 and `chdb.psv` idx 51–53 order their running windows `BY rowid`, not `BY time` | Rows tied on `time` came in an order the engine chose: DuckDB idx 54 was off on 4 rows tied on (sym, time) in every one of 3 runs, chDB idx 52 on row 11303 (21,283 trades, 19,118 distinct times). `rowid` is the table's stable time order, the order q's `sums` runs in (`docs/verification.md` section 3). idx 55 on chDB and 49–50 on both already used it | Yes, standalone |
+| 31 | Trade `price` and `size` and quote `bid` and `ask` are float64 (q `"F"`, Arrow `float64`, Rayforce `F64`), not float32; `bsize` and `asize` stay int32. Overridden in `pysrc/taqToParquet/schemas.py`, `src/loadPSVDataset.q` (patches the submodule's `inputSchema.q` after loading it) and `src/rayforce/buildRayforceDB.rfl`. Not the KDB-X path: `DATAFORMAT=kdb` (`src/taqToKDB.q`, the submodule's `parseToDisk`) still builds float32, and a Rayforce database bridged from that kdb database inherits it; that path runs only under KDB-X, which this fork does not run, so it is not patched blind | A fork decision: almost no q user stores a price as a `real`. float32 cannot hold 0.29% of `tiny`'s trade prices at their quoted decimals, and its arithmetic made engines disagree in the sixth digit (`artifacts/verification/float32.psv`, now empty) | Proposed as [KxSystems#25](https://github.com/KxSystems/NYSETAQBenchmarks/issues/25) |
 
 ### Verification rules
 
@@ -64,6 +65,14 @@ No vendor is privileged here, including peachq.
 - **Verification is separate and recorded.** It never runs inside a timed run, and every verified (solution, engine
   version, query file, parameters, date, size) is a row in `artifacts/verification/ledger.psv`; a published number
   without one is unverified.
+
+### Data rules
+
+- **Prices and sizes are float64.** Every engine loads trade `price` and `size` and quote `bid` and `ask` as float64
+  from the same PSVs (divergence 31); KX's upstream stores them as float32. This is a fork decision, said on every
+  published page (`dataNote`, and the drill-down's footer) and in every history row (`prices`), so a reader comparing with benchmark.kx.com knows
+  the data differs. A translation is written against float64 data: one that narrows to float32 asks a less precise
+  question.
 
 ### Development-machine results are not published
 
@@ -134,7 +143,7 @@ costs nothing and is not a divergence.
 
 ### Known verification reds on `tiny`
 
-What `verify.sh` still reports on `tiny` (2026-07-01) after divergences 26–30, each with its measured cause. None
+What `verify.sh` still reports on `tiny` (2026-07-01) after divergences 26–31, each with its measured cause. None
 is a translation that asks a different question, so none is fixed here.
 
 | Solution | idx | Verdict | Cause | Filed |
@@ -143,8 +152,9 @@ is a translation that asks a different question, so none is fixed here.
 | Rayforce, Rayforce Parted | 61 | missing | `(prior == sy)` over a symbol vector is a `LIST`, not `B8`, so `where` rejects it (2.11.5; `rayforce.psv` was written for 2.5.11) | [RayforceDB/rayforce#966](https://github.com/RayforceDB/rayforce/issues/966) |
 | Rayforce Parted | 53, 55 | value-diff | Not a Rayforce defect: the layout is sorted `sym,time`, and its running sum over every trade of one exchange is exactly the running sum in that order (all 142 / 63,939 rows). The question depends on physical order (`docs/verification.md` section 3); KDB-X (Parted) would answer the same | not filed |
 
-On the fixture (2026-04-01) Pandas and chDB (Memory) also differ on idx 32–33 `avgSpread` by 1.5e-6 relative, as
-they did before this change; it is not investigated here.
+The same three causes, and no others, remain on the float64 data (divergence 31, re-verified 2026-10-24). On the
+fixture (2026-04-01) only Rayforce's idx 61 is red; the 1.5e-6 Pandas/chDB difference on idx 32–33 `avgSpread` that
+the float32 data showed is gone.
 
 ## Upstream ledger
 

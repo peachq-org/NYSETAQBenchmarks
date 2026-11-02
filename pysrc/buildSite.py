@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the fork's hosted copy of the results dashboard.
 
-    python pysrc/buildSite.py SIZE OUT_DIR [--title TITLE] [--data FILE]
+    python pysrc/buildSite.py SIZE OUT_DIR [--title TITLE] [--data FILE] [--note TEXT]
 
 Copies index.html, its assets and the SIZE results into OUT_DIR, rewritten for
 hosting outside kx.com: no KX analytics tag, consent button, logo, copyright,
@@ -9,8 +9,10 @@ palette or kx.com link, repository links pointing at this fork, credit to KX
 for the benchmark, its queries and the dashboard, and the peachq.org theme
 (its colour tokens, light and dark, and font stacks). index.html itself stays
 as upstream ships it. Run pysrc/convertToJSFormat.py on results/inmemory/SIZE
-first, or pass the data.generated.js to copy with --data.
+first, or pass the data.generated.js to copy with --data. --note adds a sentence
+to the footer, saying how the data differs from KX's.
 """
+import html as markup
 import argparse
 import re
 import shutil
@@ -121,7 +123,7 @@ def sub_re(text, pattern, new):
     return out
 
 
-def rewrite(html, size, title):
+def rewrite(html, size, title, note=""):
     html = re.sub(r'\s*<script async src="https://www\.googletagmanager\.com/[^"]*"></script>\s*<script>.*?</script>',
                   "", html, count=1, flags=re.S)
     if "googletagmanager" in html:
@@ -140,7 +142,9 @@ def rewrite(html, size, title):
                   '<div class="footer-copyright">The benchmark, its queries and this dashboard are '
                   f'<a href="{UPSTREAM}">KX\'s NYSE TAQ benchmark</a> (Apache-2.0). These runs come from '
                   f'<a href="{FORK}">the peachq-org fork</a> on a development laptop and are not comparable '
-                  'with KX\'s published server results.</div>', html, count=1, flags=re.S)
+                  'with KX\'s published server results.'
+                  + (f" {markup.escape(note[0].upper() + note[1:])}." if note else "") + '</div>',
+                  html, count=1, flags=re.S)
     html = re.sub(r'\s*<nav id="footer-navigation".*?</nav>', "", html, count=1, flags=re.S)
     html = sub(html, "const available_sizes = ['full', 'xlarge', 'large'];", f"const available_sizes = ['{size}'];")
     html = sub(html, "const default_size = 'full';", f"const default_size = '{size}';")
@@ -165,6 +169,7 @@ def main():
     ap.add_argument("out_dir", type=Path)
     ap.add_argument("--title", default="NYSE TAQ Benchmark — In-Memory Query Engines (peachq-org fork)")
     ap.add_argument("--data", type=Path, help="data.generated.js to copy (default: results/inmemory/SIZE/)")
+    ap.add_argument("--note", default="", help="a sentence for the footer on how this data differs from KX's")
     a = ap.parse_args()
     root = Path(__file__).resolve().parent.parent
     data = a.data or root / "results" / "inmemory" / a.size / "data.generated.js"
@@ -181,7 +186,7 @@ def main():
     for f in ("querymeta.psv", "tags.psv"):
         shutil.copy2(root / "artifacts/queries/inmemory" / f, out / "artifacts/queries/inmemory/")
     shutil.copy2(root / "LICENSE", out / "LICENSE")
-    (out / "index.html").write_text(rewrite((root / "index.html").read_text(), a.size, a.title))
+    (out / "index.html").write_text(rewrite((root / "index.html").read_text(), a.size, a.title, a.note))
     # One thread is the count every solution ran at, the q implementations being single-threaded.
     js = out / "assets" / "js" / "benchmark.js"
     js_text = sub(js.read_text(), "const default_threads = '4';", "const default_threads = '1';")

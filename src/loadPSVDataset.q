@@ -9,6 +9,11 @@
 
 \l external/kx/taq/taq/inputSchema.q
 
+// Fork decision (FORK.md divergence 31): prices and trade sizes are floats where
+// the submodule's schema has reals; patched here so the submodule stays KX's.
+TRADESCHEMA[`$("Trade Volume";"Trade Price")]: "FF"
+QUOTESCHEMA[`Bid_Price`Offer_Price]: "FF"
+
 // "C" in 0: and $ is not universal; where it is missing the column is read as
 // "*" and folded back to char, which yields the same 10h column.
 PSVCHAR: not 10h ~ type @[{"C"$"x"}; ::; {x}]

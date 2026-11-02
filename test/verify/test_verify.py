@@ -117,9 +117,12 @@ class Floats(unittest.TestCase):
         self.assertEqual(verdict(duck, others, rtol={"other": 1e-5}), VALUE_DIFF)
         polars_std = "s\n0.0289\n"
         self.assertEqual(verdict(polars_std, "s\n0.0491\n", rtol={"s": 1e-5}), VALUE_DIFF)
-        allowed = main.float32_allowance(ROOT / "artifacts/verification/float32.psv")
-        self.assertIn("avgWeightedSpread", allowed[41])
-        self.assertNotIn(20, allowed)
+        # float64 data (FORK.md divergence 31) retired every measured row; the table stays for the next measurement.
+        self.assertEqual(main.float32_allowance(ROOT / "artifacts/verification/float32.psv"), {})
+        with tempfile.TemporaryDirectory() as d:
+            table = Path(d) / "float32.psv"
+            table.write_text("idx|column|rtol|evidence\n41|avgWeightedSpread|1e-5|measured\n")
+            self.assertEqual(main.float32_allowance(table), {41: {"avgWeightedSpread": 1e-5}})
 
 
 class Order(unittest.TestCase):

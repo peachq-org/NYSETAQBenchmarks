@@ -531,10 +531,13 @@ the median MPH is 100 / their median.
 
 A verified publish appends the run's MPH to [artifacts/publish/history.psv](./artifacts/publish/history.psv),
 one row per (run date, solution, thread count); commit it after publishing. Publishing the same run
-again adds nothing (key: run date, solution, threads, binary sha256, target, target version, size).
+again adds nothing (key: run date, solution, threads, binary sha256, target, target version, size, prices).
 The binary sha256 is the `binarysha256` line `queryEngines.sh` appends to the stats.yaml of the q
 binaries it runs (peachq, peachq (via DuckDB), l), empty for runs made before it did. A new
 DuckDB version or target starts a new series, which the page's trend chart never joins to the old.
+`prices` is how the data stored trade price and size and quote bid and ask, read from the runs'
+`stats.yaml` (a tree whose runs disagree is refused): `float32` before 2026-10-24, `float64` since (FORK.md divergence 31). It does not start a
+new series; the page marks where it changes and prints `dataNote` with the results.
 
 The `data.js` schema:
 
@@ -546,9 +549,10 @@ window.PEACHQ_BENCHMARK = {
   times: {<solution id>: {<threads>: [warm ms (min of runs 2 and 3) or null, per query]}},
   setup: {<solution id>: {<threads>: {load, sort, index, store}}},
   target: "DuckDB (Index)", baselineVersion: "2.0.0",   // the solution that is 100 MPH, and its version
+  prices: "float64", dataNote: "prices and sizes stored as float64; KX's upstream uses float32 (...#25)",
   mph: {<solution id>: {<threads>: {mph, mphMedian, answered, failed, total}}},
   history: [{date, solution, version, binarySha256, target, baselineVersion,
-             threads, size, datadate, mph, mphMedian, answered, failed}]   // the history file, oldest first
+             threads, size, datadate, prices, mph, mphMedian, answered, failed}]   // the history file, oldest first
 }
 ```
 

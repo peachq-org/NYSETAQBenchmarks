@@ -8,12 +8,12 @@ idx|tags|query|parameter
 7||SELECT * EXCEPT (rowid) FROM {quote} WHERE sym IN {fiftyInstrs} AND time BETWEEN INTERVAL 510 MINUTE AND INTERVAL 515 MINUTE|
 8||SELECT * EXCEPT (rowid) FROM {quote} WHERE sym IN {thousandInfreqInstrs} AND time BETWEEN INTERVAL 510 MINUTE AND INTERVAL 515 MINUTE|
 9||SELECT sym, time, price, size, stop, cond, ex FROM {trade} WHERE source = 'N' ORDER BY rowid|
-10||SELECT time, toFloat32((bid + ask) / 2) AS mid FROM {quote} WHERE sym = {infreqInstr} ORDER BY rowid|
-11||SELECT time, toFloat32((bid + ask) / 2) AS mid FROM {quote} WHERE sym = {freqInstr} ORDER BY rowid|
-12||SELECT time, toFloat32((bid + ask) / 2) AS mid FROM (SELECT * FROM {quote} WHERE sym = {infreqInstr} ORDER BY rowid)|
-13||SELECT time, toFloat32((bid + ask) / 2) AS mid FROM (SELECT * FROM {quote} WHERE sym = {freqInstr} ORDER BY rowid)|
-14||SELECT time, toFloat32((bid + ask) / 2) AS mid FROM {quote} WHERE sym = {infreqInstr} ORDER BY mid DESC, rowid ASC|
-15||SELECT time, toFloat32((bid + ask) / 2) AS mid FROM {quote} WHERE sym = {freqInstr} ORDER BY mid DESC, rowid ASC|
+10||SELECT time, (bid + ask) / 2 AS mid FROM {quote} WHERE sym = {infreqInstr} ORDER BY rowid|
+11||SELECT time, (bid + ask) / 2 AS mid FROM {quote} WHERE sym = {freqInstr} ORDER BY rowid|
+12||SELECT time, (bid + ask) / 2 AS mid FROM (SELECT * FROM {quote} WHERE sym = {infreqInstr} ORDER BY rowid)|
+13||SELECT time, (bid + ask) / 2 AS mid FROM (SELECT * FROM {quote} WHERE sym = {freqInstr} ORDER BY rowid)|
+14||SELECT time, (bid + ask) / 2 AS mid FROM {quote} WHERE sym = {infreqInstr} ORDER BY mid DESC, rowid ASC|
+15||SELECT time, (bid + ask) / 2 AS mid FROM {quote} WHERE sym = {freqInstr} ORDER BY mid DESC, rowid ASC|
 16||SELECT sym, time, bid, ask, bsize, asize, cond, ex FROM {quote} WHERE sym = {infreqInstr} ORDER BY rowid|
 17||SELECT sym, time, bid, ask, bsize, asize, cond, ex FROM {quote} WHERE sym = {freqInstr} ORDER BY rowid|
 18||SELECT sym, time, bid, ask, bsize, asize, cond, ex FROM {quote} WHERE sym IN {fiftyInstrs} AND 2000<bsize+asize ORDER BY rowid|

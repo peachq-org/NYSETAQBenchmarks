@@ -1,4 +1,1 @@
 idx|column|rtol|evidence
-41|avgWeightedSpread|1e-5|tiny 20260701: DuckDB 6.5e-6 from chDB/Rayforce/Pandas/peachq/l (ask-bid in REAL)
-42|avgWeightedSpread|1e-5|tiny 20260701: DuckDB 6.5e-6 from chDB/Rayforce/Pandas/peachq/l (ask-bid in REAL)
-62|size|1e-5|tiny 20260701: Polars (Lazy) 1.1e-6 from the others (sum of a REAL column in REAL)

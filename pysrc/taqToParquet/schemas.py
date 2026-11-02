@@ -104,8 +104,8 @@ TRADE_SCHEMA: Final[pa.Schema] = pa.schema([
     pa.field('Exchange', pa.dictionary(pa.int32(), pa.string())),
     pa.field('Symbol', pa.string()),
     pa.field('Sale Condition', pa.string()), # transformed to: pa.dictionary(pa.int32(), pa.string())
-    pa.field('Trade Volume', pa.float32()),  # NYSE TAQ spec 4.2 allows fractional shares, so we use float32 instead of int32
-    pa.field('Trade Price', pa.float32()),
+    pa.field('Trade Volume', pa.float64()),  # fractional shares (NYSE TAQ spec 4.2); float64 is a fork decision, FORK.md divergence 31
+    pa.field('Trade Price', pa.float64()),
     pa.field('Trade Stop Stock Indicator', pa.dictionary(pa.int32(), pa.string())),
     pa.field('Trade Correction Indicator', pa.uint16()),
     pa.field('Sequence Number', pa.int32()),  # or pa.uint32
@@ -140,9 +140,9 @@ QUOTE_SCHEMA: Final[pa.Schema] = pa.schema([
     pa.field('Time', pa.string()),  # transformed to pa.time64('ns')
     pa.field('Exchange', pa.dictionary(pa.int32(), pa.string())),
     pa.field('Symbol', pa.string()),
-    pa.field('Bid_Price', pa.float32()),
+    pa.field('Bid_Price', pa.float64()),
     pa.field('Bid_Size', pa.int32()),  # or pa.uint32
-    pa.field('Offer_Price', pa.float32()),
+    pa.field('Offer_Price', pa.float64()),
     pa.field('Offer_Size', pa.int32()),  # or pa.uint32
     pa.field('Quote_Condition', pa.dictionary(pa.int32(), pa.string())),
     pa.field('Sequence_Number', pa.int32()),  # or pa.uint32
